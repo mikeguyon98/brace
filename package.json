@@ -1,0 +1,46 @@
+{
+  "name": "billing-simulator",
+  "version": "1.0.0",
+  "description": "High-performance medical billing claims processing simulator",
+  "scripts": {
+    "build": "npm run build:shared && npm run build:services",
+    "build:shared": "tsc -p packages/shared/tsconfig.json",
+    "build:services": "npm run build:ingestion && npm run build:clearinghouse && npm run build:payer && npm run build:billing",
+    "build:ingestion": "tsc -p services/ingestion/tsconfig.json",
+    "build:clearinghouse": "tsc -p services/clearinghouse/tsconfig.json", 
+    "build:payer": "tsc -p services/payer/tsconfig.json",
+    "build:billing": "tsc -p services/billing/tsconfig.json",
+    "dev:ingestion": "tsx watch services/ingestion/src/index.ts",
+    "dev:clearinghouse": "tsx watch services/clearinghouse/src/index.ts",
+    "dev:payer": "tsx watch services/payer/src/index.ts",
+    "dev:billing": "tsx watch services/billing/src/index.ts",
+    "docker:build": "docker-compose build",
+    "docker:up": "docker-compose up",
+    "docker:down": "docker-compose down",
+    "test": "jest",
+    "lint": "eslint . --ext .ts",
+    "format": "prettier --write ."
+  },
+  "workspaces": [
+    "packages/*",
+    "services/*"
+  ],
+  "devDependencies": {
+    "@types/node": "^20.0.0",
+    "@typescript-eslint/eslint-plugin": "^6.0.0",
+    "@typescript-eslint/parser": "^6.0.0",
+    "eslint": "^8.0.0",
+    "jest": "^29.0.0",
+    "prettier": "^3.0.0",
+    "tsx": "^4.0.0",
+    "typescript": "^5.0.0"
+  },
+  "dependencies": {
+    "bullmq": "^5.0.0",
+    "fastify": "^4.0.0",
+    "ioredis": "^5.0.0",
+    "pg": "^8.0.0",
+    "winston": "^3.0.0",
+    "zod": "^3.0.0"
+  }
+}

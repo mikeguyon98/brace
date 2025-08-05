@@ -1,0 +1,192 @@
+services:
+  # Redis for queues and caching
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "6380:6379"
+    volumes:
+      - redis_data:/data
+    command: redis-server --appendonly yes
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 3s
+      retries: 3
+
+  # PostgreSQL for clearinghouse correlation tracking
+  postgres-clearinghouse:
+    image: postgres:15-alpine
+    environment:
+      POSTGRES_DB: clearinghouse
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+    ports:
+      - "5434:5432"
+    volumes:
+      - postgres_clearinghouse_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d clearinghouse"]
+      interval: 10s
+      timeout: 3s
+      retries: 3
+
+  # PostgreSQL for billing statistics
+  postgres-billing:
+    image: postgres:15-alpine
+    environment:
+      POSTGRES_DB: billing
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+    ports:
+      - "5433:5432"
+    volumes:
+      - postgres_billing_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d billing"]
+      interval: 10s
+      timeout: 3s
+      retries: 3
+
+  # Clearinghouse service
+  clearinghouse:
+    build:
+      context: .
+      dockerfile: services/clearinghouse/Dockerfile
+    environment:
+      - NODE_ENV=production
+      - SERVICE_NAME=clearinghouse
+      - REDIS_HOST=redis
+      - REDIS_PORT=6379
+      - POSTGRES_HOST=postgres-clearinghouse
+      - POSTGRES_PORT=5432
+      - POSTGRES_DB=clearinghouse
+      - POSTGRES_USER=postgres
+      - POSTGRES_PASSWORD=postgres
+    depends_on:
+      redis:
+        condition: service_healthy
+      postgres-clearinghouse:
+        condition: service_healthy
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "node", "-e", "process.exit(0)"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  # Billing service
+  billing:
+    build:
+      context: .
+      dockerfile: services/billing/Dockerfile
+    environment:
+      - NODE_ENV=production
+      - SERVICE_NAME=billing
+      - REDIS_HOST=redis
+      - REDIS_PORT=6379
+      - POSTGRES_HOST=postgres-billing
+      - POSTGRES_PORT=5432
+      - POSTGRES_DB=billing
+      - POSTGRES_USER=postgres
+      - POSTGRES_PASSWORD=postgres
+      - REPORTING_INTERVAL_SECONDS=5
+    depends_on:
+      redis:
+        condition: service_healthy
+      postgres-billing:
+        condition: service_healthy
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "node", "-e", "process.exit(0)"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  # Payer services (multiple instances)
+  payer-aetna:
+    build:
+      context: .
+      dockerfile: services/payer/Dockerfile
+    environment:
+      - NODE_ENV=production
+      - SERVICE_NAME=payer-aetna
+      - PAYER_ID=AETNA_001
+      - REDIS_HOST=redis
+      - REDIS_PORT=6379
+    depends_on:
+      redis:
+        condition: service_healthy
+    restart: unless-stopped
+
+  payer-bcbs:
+    build:
+      context: .
+      dockerfile: services/payer/Dockerfile
+    environment:
+      - NODE_ENV=production
+      - SERVICE_NAME=payer-bcbs
+      - PAYER_ID=BCBS_001
+      - REDIS_HOST=redis
+      - REDIS_PORT=6379
+    depends_on:
+      redis:
+        condition: service_healthy
+    restart: unless-stopped
+
+  payer-cigna:
+    build:
+      context: .
+      dockerfile: services/payer/Dockerfile
+    environment:
+      - NODE_ENV=production
+      - SERVICE_NAME=payer-cigna
+      - PAYER_ID=CIGNA_001
+      - REDIS_HOST=redis
+      - REDIS_PORT=6379
+    depends_on:
+      redis:
+        condition: service_healthy
+    restart: unless-stopped
+
+  payer-humana:
+    build:
+      context: .
+      dockerfile: services/payer/Dockerfile
+    environment:
+      - NODE_ENV=production
+      - SERVICE_NAME=payer-humana
+      - PAYER_ID=HUMANA_001
+      - REDIS_HOST=redis
+      - REDIS_PORT=6379
+    depends_on:
+      redis:
+        condition: service_healthy
+    restart: unless-stopped
+
+  payer-medicare:
+    build:
+      context: .
+      dockerfile: services/payer/Dockerfile
+    environment:
+      - NODE_ENV=production
+      - SERVICE_NAME=payer-medicare
+      - PAYER_ID=MEDICARE_001
+      - REDIS_HOST=redis
+      - REDIS_PORT=6379
+    depends_on:
+      redis:
+        condition: service_healthy
+    restart: unless-stopped
+
+  # Ingestion service (run separately with CLI)
+  # This service is typically run manually with the claims file
+  # Example: docker-compose run --rm ingestion /data/claims.jsonl --rate=2.0
+
+volumes:
+  redis_data:
+  postgres_clearinghouse_data:
+  postgres_billing_data:
+
+networks:
+  default:
+    name: billing_simulator
