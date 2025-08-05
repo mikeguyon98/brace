@@ -43,35 +43,40 @@ export class PayerService {
   constructor(config: PayerServiceConfig) {
     this.config = config;
     
-    // Initialize Redis connection
-    this.redis = new Redis({
+    // Redis connection configuration for BullMQ
+    const redisConfig = {
       host: config.redis.host,
       port: config.redis.port,
       password: config.redis.password,
-      maxRetriesPerRequest: 3,
+      maxRetriesPerRequest: null,
+    };
+
+    // Initialize Redis connection for general use
+    this.redis = new Redis({
+      ...redisConfig,
       lazyConnect: true,
     });
 
     // Initialize adjudicator
     this.adjudicator = new PayerAdjudicator(config.payerConfig);
 
-    // Initialize queues
+    // Initialize queues with separate connections
     const queueName = `payer-${config.payerId.toLowerCase()}`;
     this.payerQueue = new Queue(queueName, {
-      connection: this.redis,
+      connection: redisConfig,
     });
 
     this.remittanceQueue = new Queue(QUEUE_NAMES.REMITTANCE_RETURN, {
-      connection: this.redis,
+      connection: redisConfig,
       defaultJobOptions: QUEUE_CONFIGS.remittance.defaultJobOptions,
     });
 
-    // Initialize worker
+    // Initialize worker with separate connection
     this.worker = new Worker(
       queueName,
       this.processClaim.bind(this),
       {
-        connection: this.redis,
+        connection: redisConfig,
         concurrency: this.calculateConcurrency(),
       }
     );

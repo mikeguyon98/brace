@@ -35,16 +35,22 @@ export class IngestionService {
 
   constructor(config: IngestionServiceConfig) {
     this.config = config;
-    this.redis = new Redis({
+    
+    // Redis connection configuration for BullMQ
+    const redisConfig = {
       host: config.redis.host,
       port: config.redis.port,
       password: config.redis.password,
-      maxRetriesPerRequest: 3,
+      maxRetriesPerRequest: null,
+    };
+
+    this.redis = new Redis({
+      ...redisConfig,
       lazyConnect: true,
     });
 
     this.claimsQueue = new Queue(QUEUE_NAMES.CLAIMS_INGESTION, {
-      connection: this.redis,
+      connection: redisConfig,
       defaultJobOptions: QUEUE_CONFIGS.ingestion.defaultJobOptions,
     });
 
@@ -103,7 +109,11 @@ export class IngestionService {
 
     try {
       // Apply rate limiting
-      await this.rateLimiter.waitForToken();
+      if ('waitForToken' in this.rateLimiter) {
+        await this.rateLimiter.waitForToken();
+      } else {
+        await this.rateLimiter.waitForNext();
+      }
 
       // Create correlation ID and message
       const correlationId = generateCorrelationId();

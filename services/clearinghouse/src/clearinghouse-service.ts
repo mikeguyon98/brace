@@ -46,12 +46,17 @@ export class ClearinghouseService {
   constructor(config: ClearinghouseConfig) {
     this.config = config;
     
-    // Initialize Redis connection
-    this.redis = new Redis({
+    // Redis connection configuration for BullMQ
+    const redisConfig = {
       host: config.redis.host,
       port: config.redis.port,
       password: config.redis.password,
-      maxRetriesPerRequest: 3,
+      maxRetriesPerRequest: null,
+    };
+
+    // Initialize Redis connection for general use
+    this.redis = new Redis({
+      ...redisConfig,
       lazyConnect: true,
     });
 
@@ -61,22 +66,22 @@ export class ClearinghouseService {
     // Initialize payer registry
     this.payerRegistry = new PayerRegistry();
 
-    // Initialize queues
+    // Initialize queues with separate connections
     this.claimsQueue = new Queue(QUEUE_NAMES.CLAIMS_INGESTION, {
-      connection: this.redis,
+      connection: redisConfig,
     });
 
     this.remittanceQueue = new Queue(QUEUE_NAMES.REMITTANCE_RETURN, {
-      connection: this.redis,
+      connection: redisConfig,
       defaultJobOptions: QUEUE_CONFIGS.remittance.defaultJobOptions,
     });
 
-    // Initialize workers
+    // Initialize workers with separate connections
     this.claimsWorker = new Worker(
       QUEUE_NAMES.CLAIMS_INGESTION,
       this.processClaim.bind(this),
       {
-        connection: this.redis,
+        connection: redisConfig,
         concurrency: 10, // Process up to 10 claims concurrently
       }
     );
@@ -85,7 +90,7 @@ export class ClearinghouseService {
       QUEUE_NAMES.REMITTANCE_RETURN,
       this.processRemittance.bind(this),
       {
-        connection: this.redis,
+        connection: redisConfig,
         concurrency: 5, // Process remittances sequentially for data consistency
       }
     );

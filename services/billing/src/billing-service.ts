@@ -38,29 +38,34 @@ export class BillingService {
   constructor(config: BillingServiceConfig) {
     this.config = config;
     
-    // Initialize Redis connection
-    this.redis = new Redis({
+    // Redis connection configuration for BullMQ
+    const redisConfig = {
       host: config.redis.host,
       port: config.redis.port,
       password: config.redis.password,
-      maxRetriesPerRequest: 3,
+      maxRetriesPerRequest: null,
+    };
+
+    // Initialize Redis connection for general use
+    this.redis = new Redis({
+      ...redisConfig,
       lazyConnect: true,
     });
 
     // Initialize statistics service
     this.statisticsService = new StatisticsService(config.database);
 
-    // Initialize queue
+    // Initialize queue with separate connection
     this.remittanceQueue = new Queue(QUEUE_NAMES.REMITTANCE_RETURN, {
-      connection: this.redis,
+      connection: redisConfig,
     });
 
-    // Initialize worker
+    // Initialize worker with separate connection
     this.remittanceWorker = new Worker(
       QUEUE_NAMES.REMITTANCE_RETURN,
       this.processRemittance.bind(this),
       {
-        connection: this.redis,
+        connection: redisConfig,
         concurrency: 5, // Process remittances with moderate concurrency
       }
     );

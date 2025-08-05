@@ -47,6 +47,29 @@ services:
       timeout: 3s
       retries: 3
 
+  # Ingestion service for processing claims files
+  ingestion:
+    build:
+      context: .
+      dockerfile: services/ingestion/Dockerfile
+    environment:
+      - NODE_ENV=production
+      - SERVICE_NAME=ingestion
+      - REDIS_HOST=redis
+      - REDIS_PORT=6379
+    depends_on:
+      redis:
+        condition: service_healthy
+    volumes:
+      - ./data:/data
+      - ./test-claims.jsonl:/data/test-claims.jsonl
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "node", "-e", "process.exit(0)"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
   # Clearinghouse service
   clearinghouse:
     build:
