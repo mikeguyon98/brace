@@ -10,12 +10,14 @@ import { ARAgingService } from '../ar-aging';
 import { ClaimStorage } from './storage';
 import { ClaimRouter } from './router';
 import { ClearinghouseStats } from './interfaces';
+import { ClaimStore } from '../database';
 
 export class ClearinghouseService {
   private claimsQueue: InMemoryQueue<ClaimMessage>;
   private remittanceQueue: InMemoryQueue<RemittanceMessage>;
   private claimStorage: ClaimStorage;
   private claimRouter: ClaimRouter;
+  private claimStore: ClaimStore;
   private claimsProcessed = 0;
   private arAgingService?: ARAgingService;
 
@@ -24,13 +26,14 @@ export class ClearinghouseService {
     remittanceQueue: InMemoryQueue<RemittanceMessage>,
     payerQueues: Map<string, InMemoryQueue<ClaimMessage>>,
     payerConfigs: Map<string, any>,
-    arAgingService?: ARAgingService,
-    private onStep3Complete?: () => void
+    claimStore: ClaimStore,
+    arAgingService?: ARAgingService
   ) {
     this.claimsQueue = claimsQueue;
     this.remittanceQueue = remittanceQueue;
     this.claimStorage = new ClaimStorage();
     this.claimRouter = new ClaimRouter(payerQueues, payerConfigs);
+    this.claimStore = claimStore;
     this.arAgingService = arAgingService;
 
     this.setupProcessors();
@@ -65,13 +68,15 @@ export class ClearinghouseService {
         throw new Error(`Failed to route claim ${claimMessage.claim.claim_id}`);
       }
 
-      // Store claim for correlation tracking
+      // Store claim for correlation tracking (legacy)
       this.claimStorage.storeClaim(claimMessage, routingResult.targetPayerId);
 
-      // Track Step 3: Claims Forwarded to Payers
-      if (this.onStep3Complete) {
-        this.onStep3Complete();
-      }
+      // Update claim status in PostgreSQL
+      await this.claimStore.markClaimRouted(
+        claimMessage.claim.claim_id,
+        routingResult.targetPayerId,
+        routingResult.payerName
+      );
 
       // Record claim submission for AR Aging
       if (this.arAgingService) {

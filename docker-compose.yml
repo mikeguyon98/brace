@@ -23,7 +23,7 @@ services:
     image: postgres:15
     container_name: postgres-billing
     environment:
-      POSTGRES_DB: billing
+      POSTGRES_DB: billing_simulator
       POSTGRES_USER: postgres
       POSTGRES_PASSWORD: postgres
     ports:

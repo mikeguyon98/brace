@@ -1,0 +1,100 @@
+Generating 10 claims to claims.jsonl...
+Successfully generated 10 claims in claims.jsonl
+
+Sample claim:
+{
+  "claim_id": "CLMO05FF10Y",
+  "place_of_service_code": 13,
+  "insurance": {
+    "payer_id": "united_health_group",
+    "patient_member_id": "MEME01VPXRAEPYW"
+  },
+  "patient": {
+    "first_name": "Lisa",
+    "last_name": "Johnson",
+    "gender": "m",
+    "dob": "1984-02-08",
+    "address": {
+      "street": "9356 Pine St",
+      "city": "Atlanta",
+      "state": "IL",
+      "zip": "41327",
+      "country": "US"
+    }
+  },
+  "organization": {
+    "name": "Downtown Medical Associates",
+    "billing_npi": "4971985810",
+    "ein": "21-5753460",
+    "contact": {
+      "first_name": "David",
+      "last_name": "Rodriguez",
+      "phone_number": "904-678-8734"
+    },
+    "address": {
+      "street": "6638 Main St",
+      "city": "Philadelphia",
+      "state": "OH",
+      "zip": "24477",
+      "country": "US"
+    }
+  },
+  "rendering_provider": {
+    "first_name": "Lisa",
+    "last_name": "Garcia",
+    "npi": "0011625543"
+  },
+  "service_lines": [
+    {
+      "service_line_id": "SL7Q0VU99O",
+      "procedure_code": "99281",
+      "units": 1,
+      "details": "99281 - Medical procedure",
+      "unit_charge_currency": "USD",
+      "unit_charge_amount": 252.87
+    },
+    {
+      "service_line_id": "SLD4Z5LP8V",
+      "procedure_code": "99282",
+      "units": 2,
+      "details": "99282 - Medical procedure",
+      "unit_charge_currency": "USD",
+      "unit_charge_amount": 194.93
+    },
+    {
+      "service_line_id": "SLX2VWFUTU",
+      "procedure_code": "80061",
+      "units": 3,
+      "details": "80061 - Medical procedure",
+      "unit_charge_currency": "USD",
+      "unit_charge_amount": 459.01
+    },
+    {
+      "service_line_id": "SLHJRADI4J",
+      "procedure_code": "73000",
+      "units": 1,
+      "details": "73000 - Medical procedure",
+      "unit_charge_currency": "USD",
+      "unit_charge_amount": 467.55
+    },
+    {
+      "service_line_id": "SLQ9349HF0",
+      "procedure_code": "93000",
+      "units": 1,
+      "details": "93000 - Medical procedure",
+      "unit_charge_currency": "USD",
+      "unit_charge_amount": 244.62
+    }
+  ]
+}
+
+Payer distribution:
+  medicare: ~33%
+  united_health_group: ~33%
+  anthem: ~33%
+
+Note: Generated claims now match the new PayerClaim JSON schema format
+- Service lines include unit_charge_currency and unit_charge_amount
+- Claims include patient, organization, and rendering_provider objects
+- Insurance info is nested under insurance object
+- Place of service code is included

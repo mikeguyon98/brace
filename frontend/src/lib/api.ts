@@ -118,8 +118,21 @@ export interface SimulatorStats {
     payerId: string
     payerName: string
     claimsProcessed: number
+    deniedClaims: number
     averageProcessingTime: number
     errors: number
+  }>
+  aging: Array<{
+    payerId: string
+    payerName: string
+    bucket0To1Min: number
+    bucket1To2Min: number
+    bucket2To3Min: number
+    bucket3PlusMin: number
+    outstandingClaims: number
+    avgAgeMinutes: number
+    oldestClaimMinutes: number
+    outstandingAmount: number
   }>
 }
 

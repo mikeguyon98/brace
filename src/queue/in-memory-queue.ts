@@ -1,10 +1,12 @@
 /**
  * In-memory queue system to replace Redis/BullMQ
- * Provides similar API but runs in a single process
+ * Provides similar API but runs in a single process with optional worker threads
  */
 
 import { EventEmitter } from 'events';
+import { Worker } from 'worker_threads';
 import { logger } from '../shared/logger';
+import os from 'os';
 
 export interface QueueJob<T = any> {
   id: string;
@@ -24,6 +26,8 @@ export interface QueueOptions {
   delay?: number;
   concurrency?: number;
   retryDelay?: number;
+  useWorkerThreads?: boolean;
+  workerScript?: string;
 }
 
 export interface JobProcessor<T> {
@@ -40,6 +44,8 @@ export class InMemoryQueue<T = any> extends EventEmitter {
   private isProcessing = false;
   private options: Required<QueueOptions>;
   private jobIdCounter = 0;
+  private workers: Worker[] = [];
+  private workerIndex = 0;
 
   constructor(public name: string, options: QueueOptions = {}) {
     super();
@@ -48,7 +54,93 @@ export class InMemoryQueue<T = any> extends EventEmitter {
       delay: options.delay ?? 0,
       concurrency: options.concurrency ?? 1,
       retryDelay: options.retryDelay ?? 1000,
+      useWorkerThreads: options.useWorkerThreads ?? false,
+      workerScript: options.workerScript ?? '',
     };
+
+    if (this.options.useWorkerThreads && this.options.workerScript) {
+      this.initializeWorkers();
+    }
+  }
+
+  /**
+   * Initialize worker threads for parallel processing
+   */
+  private initializeWorkers(): void {
+    const workerCount = Math.min(this.options.concurrency, os.cpus().length - 1);
+    
+    for (let i = 0; i < workerCount; i++) {
+      const worker = new Worker(this.options.workerScript, {
+        workerData: { 
+          queueName: this.name,
+          workerId: i,
+          options: this.options 
+        }
+      });
+
+      worker.on('message', (message) => {
+        this.handleWorkerMessage(message);
+      });
+
+      worker.on('error', (error) => {
+        logger.error(`Worker ${i} error:`, error);
+      });
+
+      worker.on('exit', (code) => {
+        if (code !== 0) {
+          logger.warn(`Worker ${i} stopped with exit code ${code}`);
+        }
+      });
+
+      this.workers.push(worker);
+    }
+
+    logger.info(`Initialized ${workerCount} worker threads for queue: ${this.name}`);
+  }
+
+  /**
+   * Handle messages from worker threads
+   */
+  private handleWorkerMessage(message: any): void {
+    const { type, jobId, result, error } = message;
+    const job = this.jobs.get(jobId);
+
+    if (!job) {
+      logger.warn(`Received message for unknown job: ${jobId}`);
+      return;
+    }
+
+    switch (type) {
+      case 'completed':
+        job.completedAt = new Date();
+        this.completedJobs.push(job);
+        this.processingJobs.delete(jobId);
+        this.emit('job-completed', job);
+        break;
+      
+      case 'failed':
+        job.error = new Error(error);
+        this.emit('job-failed', job, job.error);
+        
+        if (job.attempts < job.maxAttempts) {
+          // Retry the job
+          const retryDelay = this.options.retryDelay * Math.pow(2, job.attempts - 1);
+          setTimeout(() => {
+            this.pendingJobs.push(job);
+            this.processJobs();
+          }, retryDelay);
+        } else {
+          // Job permanently failed
+          job.failedAt = new Date();
+          this.failedJobs.push(job);
+        }
+        
+        this.processingJobs.delete(jobId);
+        break;
+    }
+
+    // Continue processing more jobs
+    setImmediate(() => this.processJobs());
   }
 
   /**
@@ -101,14 +193,42 @@ export class InMemoryQueue<T = any> extends EventEmitter {
 
     while (this.pendingJobs.length > 0 && this.processingJobs.size < this.options.concurrency) {
       const job = this.pendingJobs.shift()!;
-      this.processJob(job);
+      
+      if (this.options.useWorkerThreads && this.workers.length > 0) {
+        this.processJobWithWorker(job);
+      } else {
+        this.processJob(job);
+      }
     }
 
     this.isProcessing = false;
   }
 
   /**
-   * Process a single job
+   * Process a job using worker threads
+   */
+  private processJobWithWorker(job: QueueJob<T>): void {
+    this.processingJobs.add(job.id);
+    job.attempts++;
+    job.processedAt = new Date();
+
+    this.emit('job-started', job);
+
+    // Send job to next available worker
+    const worker = this.workers[this.workerIndex];
+    this.workerIndex = (this.workerIndex + 1) % this.workers.length;
+
+    worker.postMessage({
+      type: 'process',
+      jobId: job.id,
+      data: job.data,
+      attempts: job.attempts,
+      maxAttempts: job.maxAttempts
+    });
+  }
+
+  /**
+   * Process a single job in the main thread
    */
   private async processJob(job: QueueJob<T>): Promise<void> {
     this.processingJobs.add(job.id);
@@ -182,6 +302,8 @@ export class InMemoryQueue<T = any> extends EventEmitter {
       completed: this.completedJobs.length,
       failed: this.failedJobs.length,
       total: this.jobs.size,
+      workers: this.workers.length,
+      useWorkerThreads: this.options.useWorkerThreads,
     };
   }
 
@@ -223,6 +345,18 @@ export class InMemoryQueue<T = any> extends EventEmitter {
     this.isProcessing = false;
     this.processJobs();
     this.emit('resumed');
+  }
+
+  /**
+   * Stop all workers and cleanup
+   */
+  async stop(): Promise<void> {
+    // Stop all workers
+    const stopPromises = this.workers.map(worker => worker.terminate());
+    await Promise.all(stopPromises);
+    this.workers = [];
+    
+    logger.info(`Stopped all workers for queue: ${this.name}`);
   }
 }
 

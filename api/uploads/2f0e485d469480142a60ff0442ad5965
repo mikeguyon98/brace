@@ -1,0 +1,93 @@
+Generating 100 claims to claims.jsonl...
+Generated 100 claims...
+Successfully generated 100 claims in claims.jsonl
+
+Sample claim:
+{
+  "claim_id": "CLMQOWCDGVA",
+  "place_of_service_code": 39,
+  "insurance": {
+    "payer_id": "united_health_group",
+    "patient_member_id": "MEMDEVBM432LCPE"
+  },
+  "patient": {
+    "first_name": "John",
+    "last_name": "Rodriguez",
+    "gender": "m",
+    "dob": "1963-12-08",
+    "address": {
+      "street": "5515 Oak St",
+      "city": "Chicago",
+      "state": "PA",
+      "zip": "99630",
+      "country": "US"
+    }
+  },
+  "organization": {
+    "name": "Suburban Health Center",
+    "billing_npi": "6036199891",
+    "ein": "41-3945001",
+    "contact": {
+      "first_name": "Jennifer",
+      "last_name": "Smith",
+      "phone_number": "606-776-9437"
+    },
+    "address": {
+      "street": "417 Pine St",
+      "city": "Detroit",
+      "state": "CA",
+      "zip": "19256",
+      "country": "US"
+    }
+  },
+  "rendering_provider": {
+    "first_name": "Jessica",
+    "last_name": "Garcia",
+    "npi": "5560100967"
+  },
+  "service_lines": [
+    {
+      "service_line_id": "SLFCU5D78P",
+      "procedure_code": "93000",
+      "units": 2,
+      "details": "93000 - Medical procedure",
+      "unit_charge_currency": "USD",
+      "unit_charge_amount": 370.93
+    },
+    {
+      "service_line_id": "SL1Z94U7H8",
+      "procedure_code": "99281",
+      "units": 1,
+      "details": "99281 - Medical procedure",
+      "unit_charge_currency": "USD",
+      "unit_charge_amount": 446.92
+    },
+    {
+      "service_line_id": "SLQOD68797",
+      "procedure_code": "99215",
+      "units": 1,
+      "details": "99215 - Medical procedure",
+      "unit_charge_currency": "USD",
+      "unit_charge_amount": 419.39
+    },
+    {
+      "service_line_id": "SL2TG1G63G",
+      "procedure_code": "71030",
+      "units": 2,
+      "details": "71030 - Medical procedure",
+      "unit_charge_currency": "USD",
+      "unit_charge_amount": 491.18
+    }
+  ]
+}
+
+Payer distribution:
+  medicare: ~33%
+  united_health_group: ~33%
+  anthem: ~33%
+
+Note: Generated claims now match the new PayerClaim JSON schema format
+- Service lines include unit_charge_currency and unit_charge_amount
+- Claims include patient, organization, and rendering_provider objects
+- Insurance info is nested under insurance object
+- Place of service code is included

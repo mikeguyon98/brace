@@ -1,19 +1,33 @@
 import { BillingService } from '../service';
 import { BillingStatisticsManager } from '../statistics';
+import { BillingReportGenerator } from '../reporting';
 import { InMemoryQueue } from '../../../queue/in-memory-queue';
 import { ARAgingService } from '../../ar-aging';
+import { ClaimStore } from '../../database';
 import { RemittanceMessage, RemittanceAdvice, ClaimStatus } from '../../../shared/types';
+import { BillingServiceConfig } from '../interfaces';
 
 // Mock dependencies
 jest.mock('../statistics');
+jest.mock('../reporting');
 jest.mock('../../ar-aging');
+jest.mock('../../database');
+jest.mock('../../../shared/logger', () => ({
+  logger: {
+    info: jest.fn(),
+    debug: jest.fn(),
+    warn: jest.fn(),
+    error: jest.fn()
+  }
+}));
 
 describe('BillingService', () => {
   let billingService: BillingService;
   let mockQueue: InMemoryQueue<RemittanceMessage>;
+  let mockClaimStore: jest.Mocked<ClaimStore>;
   let mockARAgingService: jest.Mocked<ARAgingService>;
-  let mockOnClaimProcessed: jest.Mock;
   let mockStatisticsManager: jest.Mocked<BillingStatisticsManager>;
+  let mockReportGenerator: jest.Mocked<BillingReportGenerator>;
 
   beforeEach(() => {
     // Clear all mocks
@@ -26,13 +40,15 @@ describe('BillingService', () => {
       getStats: jest.fn().mockReturnValue({ pending: 0, processing: 0 })
     } as any;
 
+    // Create mock claim store
+    mockClaimStore = {
+      markClaimBilled: jest.fn().mockResolvedValue(undefined)
+    } as any;
+
     // Create mock AR Aging Service
     mockARAgingService = {
       recordClaimCompletion: jest.fn()
     } as any;
-
-    // Create mock callback
-    mockOnClaimProcessed = jest.fn();
 
     // Mock the BillingStatisticsManager
     mockStatisticsManager = {
@@ -45,34 +61,68 @@ describe('BillingService', () => {
       getTopPatients: jest.fn()
     } as any;
 
+    // Mock the BillingReportGenerator
+    mockReportGenerator = {
+      printReport: jest.fn(),
+      generateReport: jest.fn(),
+      generateTextReport: jest.fn(),
+      generateJSONReport: jest.fn(),
+      generateSummaryForDashboard: jest.fn(),
+      generatePayerCSV: jest.fn()
+    } as any;
+
     (BillingStatisticsManager as jest.Mock).mockImplementation(() => mockStatisticsManager);
+    (BillingReportGenerator as jest.Mock).mockImplementation(() => mockReportGenerator);
   });
 
   describe('Constructor', () => {
     it('should initialize with default configuration', () => {
-      billingService = new BillingService(mockQueue);
+      billingService = new BillingService(mockQueue, mockClaimStore);
       
       expect(mockQueue.process).toHaveBeenCalledWith(expect.any(Function));
       expect(BillingStatisticsManager).toHaveBeenCalled();
+      expect(BillingReportGenerator).toHaveBeenCalledWith(mockStatisticsManager);
     });
 
     it('should initialize with custom configuration', () => {
-      const config = { reportingIntervalSeconds: 60 };
-      billingService = new BillingService(mockQueue, config);
+      const config: BillingServiceConfig = { reportingIntervalSeconds: 60 };
+      billingService = new BillingService(mockQueue, mockClaimStore, config);
       
       expect(billingService.getConfig()).toEqual(config);
     });
 
     it('should initialize with AR aging service', () => {
-      billingService = new BillingService(mockQueue, {}, mockARAgingService);
+      billingService = new BillingService(mockQueue, mockClaimStore, {}, mockARAgingService);
       
       expect(mockQueue.process).toHaveBeenCalled();
     });
 
-    it('should initialize with claim processed callback', () => {
-      billingService = new BillingService(mockQueue, {}, undefined, mockOnClaimProcessed);
+    it('should apply default configuration values', () => {
+      billingService = new BillingService(mockQueue, mockClaimStore, {});
       
-      expect(mockQueue.process).toHaveBeenCalled();
+      expect(billingService.getConfig().reportingIntervalSeconds).toBe(30);
+    });
+
+    it('should start reporting interval if configured', () => {
+      jest.useFakeTimers();
+      billingService = new BillingService(mockQueue, mockClaimStore, { reportingIntervalSeconds: 10 });
+      
+      jest.advanceTimersByTime(10000);
+      expect(mockReportGenerator.printReport).toHaveBeenCalled();
+      
+      billingService.stop();
+      jest.useRealTimers();
+    });
+
+    it('should not start reporting if interval is 0', () => {
+      jest.useFakeTimers();
+      billingService = new BillingService(mockQueue, mockClaimStore, { reportingIntervalSeconds: 0 });
+      
+      jest.advanceTimersByTime(10000);
+      expect(mockReportGenerator.printReport).not.toHaveBeenCalled();
+      
+      billingService.stop();
+      jest.useRealTimers();
     });
   });
 
@@ -80,7 +130,7 @@ describe('BillingService', () => {
     let sampleRemittanceMessage: RemittanceMessage;
 
     beforeEach(() => {
-      billingService = new BillingService(mockQueue, {}, mockARAgingService, mockOnClaimProcessed);
+      billingService = new BillingService(mockQueue, mockClaimStore, {}, mockARAgingService);
       
       sampleRemittanceMessage = {
         correlation_id: 'test-123',
@@ -121,34 +171,66 @@ describe('BillingService', () => {
         sampleRemittanceMessage,
         expect.any(Number)
       );
+      expect(mockClaimStore.markClaimBilled).toHaveBeenCalledWith('claim-456');
       expect(mockARAgingService.recordClaimCompletion).toHaveBeenCalledWith(sampleRemittanceMessage);
-      expect(mockOnClaimProcessed).toHaveBeenCalled();
+    });
+
+    it('should handle database errors gracefully', async () => {
+      mockClaimStore.markClaimBilled.mockRejectedValue(new Error('Database connection failed'));
+      
+      const processor = (mockQueue.process as jest.Mock).mock.calls[0][0];
+      
+      await expect(processor({ data: sampleRemittanceMessage })).rejects.toThrow('Database connection failed');
+      expect(mockStatisticsManager.processRemittance).toHaveBeenCalled();
+    });
+
+    it('should continue processing even if AR aging service fails', async () => {
+      mockARAgingService.recordClaimCompletion.mockImplementation(() => {
+        throw new Error('AR aging service error');
+      });
+      
+      const processor = (mockQueue.process as jest.Mock).mock.calls[0][0];
+      
+      await expect(processor({ data: sampleRemittanceMessage })).rejects.toThrow();
+      expect(mockStatisticsManager.processRemittance).toHaveBeenCalled();
+      expect(mockClaimStore.markClaimBilled).toHaveBeenCalled();
+    });
+
+    it('should track processing metrics correctly', async () => {
+      const startTime = Date.now();
+      const processor = (mockQueue.process as jest.Mock).mock.calls[0][0];
+      
+      await processor({ data: sampleRemittanceMessage });
+      
+      expect(mockStatisticsManager.processRemittance).toHaveBeenCalledWith(
+        sampleRemittanceMessage,
+        expect.any(Number)
+      );
+      
+      const processingTime = (mockStatisticsManager.processRemittance as jest.Mock).mock.calls[0][1];
+      expect(typeof processingTime).toBe('number');
+      expect(processingTime).toBeGreaterThanOrEqual(0);
+    });
+
+    it('should increment remittances processed counter', async () => {
+      const processor = (mockQueue.process as jest.Mock).mock.calls[0][0];
+      
+      expect(billingService.getStats().remittancesProcessed).toBe(0);
+      
+      await processor({ data: sampleRemittanceMessage });
+      
+      expect(billingService.getStats().remittancesProcessed).toBe(1);
     });
 
     it('should handle missing AR aging service', async () => {
-      // Clear previous mock calls
       jest.clearAllMocks();
-      billingService = new BillingService(mockQueue, {}, undefined, mockOnClaimProcessed);
+      billingService = new BillingService(mockQueue, mockClaimStore);
       const processor = (mockQueue.process as jest.Mock).mock.calls[0][0];
       
       await processor({ data: sampleRemittanceMessage });
 
       expect(mockStatisticsManager.processRemittance).toHaveBeenCalled();
-      expect(mockOnClaimProcessed).toHaveBeenCalled();
-      expect(mockARAgingService.recordClaimCompletion).not.toHaveBeenCalled();
-    });
-
-    it('should handle missing claim processed callback', async () => {
-      // Clear previous mock calls
-      jest.clearAllMocks();
-      billingService = new BillingService(mockQueue, {}, mockARAgingService);
-      const processor = (mockQueue.process as jest.Mock).mock.calls[0][0];
-      
-      await processor({ data: sampleRemittanceMessage });
-
-      expect(mockStatisticsManager.processRemittance).toHaveBeenCalled();
-      expect(mockARAgingService.recordClaimCompletion).toHaveBeenCalled();
-      expect(mockOnClaimProcessed).not.toHaveBeenCalled();
+      expect(mockClaimStore.markClaimBilled).toHaveBeenCalled();
     });
 
     it('should log periodic progress at 50 claim intervals', async () => {

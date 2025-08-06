@@ -249,6 +249,11 @@ export interface SingleProcessConfig {
       copay_fixed_amount?: number;
       deductible_percentage?: number;
     };
+    denial_settings?: {
+      denial_rate: number;
+      hard_denial_rate: number;
+      preferred_categories?: DenialCategory[];
+    };
   }>;
   
   // General settings

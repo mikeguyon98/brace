@@ -9,11 +9,13 @@ import { InMemoryQueue } from '../../queue/in-memory-queue';
 import { FileProcessor } from './file-processor';
 import { RateLimiter } from './rate-limiter';
 import { IngestionConfig, IngestionStats, FileProcessingResult } from './interfaces';
+import { ClaimStore } from '../database';
 
 export class IngestionService {
   private claimsQueue: InMemoryQueue<ClaimMessage>;
   private config: IngestionConfig;
   private rateLimiter: RateLimiter;
+  private claimStore: ClaimStore;
   private isRunning = false;
   private claimsIngested = 0;
   private startTime = 0;
@@ -21,11 +23,11 @@ export class IngestionService {
 
   constructor(
     claimsQueue: InMemoryQueue<ClaimMessage>, 
-    config: IngestionConfig = {},
-    private onStep1Complete?: () => void,
-    private onStep2Complete?: () => void
+    claimStore: ClaimStore,
+    config: IngestionConfig = {}
   ) {
     this.claimsQueue = claimsQueue;
+    this.claimStore = claimStore;
     this.config = {
       rateLimit: config.rateLimit || 1,
     };
@@ -54,7 +56,6 @@ export class IngestionService {
         throw new Error(`Invalid file format: ${formatValidation.errors.join(', ')}`);
       }
 
-      // Read and parse claims from file
       const claims = await FileProcessor.readClaimsFromFile(filePath);
       this.totalClaims = claims.length;
 
@@ -75,19 +76,9 @@ export class IngestionService {
         }
 
         try {
-          // Track when claim starts ingestion
-          if (this.onStep1Complete) {
-            this.onStep1Complete();
-          }
-          
           await this.ingestClaim(claims[i]);
           successfulClaims++;
           this.claimsIngested++;
-          
-          // Track when claim finishes ingestion and moves to clearinghouse
-          if (this.onStep2Complete) {
-            this.onStep2Complete();
-          }
 
           // Periodic progress logging
           if (this.claimsIngested % 100 === 0) {
@@ -131,9 +122,21 @@ export class IngestionService {
       ingested_at: new Date().toISOString(),
     };
 
-    await this.claimsQueue.add(claimMessage);
-    
-    logger.debug(`Ingested claim ${claim.claim_id} with correlation ID ${correlationId}`);
+    try {
+      // Store the claim in PostgreSQL
+      await this.claimStore.storeNewClaim(claimMessage);
+      
+      // Mark it as ingested
+      await this.claimStore.markClaimIngested(claim.claim_id);
+      
+      // Add to clearinghouse processing queue directly
+      await this.claimsQueue.add(claimMessage);
+      
+      logger.debug(`Ingested claim ${claim.claim_id} with correlation ID ${correlationId}`);
+    } catch (error) {
+      logger.error(`Failed to store claim ${claim.claim_id} in database:`, error);
+      throw error;
+    }
   }
 
   /**

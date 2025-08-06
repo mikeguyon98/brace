@@ -8,24 +8,27 @@ import { logger } from '../../shared/logger';
 import { InMemoryQueue } from '../../queue/in-memory-queue';
 import { PayerAdjudicator } from './adjudicator';
 import { PayerStats } from './interfaces';
+import { ClaimStore } from '../database';
 
 export class PayerService {
   private adjudicator: PayerAdjudicator;
   private payerQueue: InMemoryQueue<ClaimMessage>;
   private remittanceQueue: InMemoryQueue<RemittanceMessage>;
   private config: PayerConfig;
+  private claimStore: ClaimStore;
   private claimsProcessed = 0;
 
   constructor(
     config: PayerConfig,
     payerQueue: InMemoryQueue<ClaimMessage>,
     remittanceQueue: InMemoryQueue<RemittanceMessage>,
-    private onStep4Complete?: () => void
+    claimStore: ClaimStore
   ) {
     this.config = config;
     this.adjudicator = new PayerAdjudicator(config);
     this.payerQueue = payerQueue;
     this.remittanceQueue = remittanceQueue;
+    this.claimStore = claimStore;
 
     this.setupProcessor();
   }
@@ -60,6 +63,31 @@ export class PayerService {
         claimMessage.claim
       );
 
+      const processingTime = Date.now() - startTime;
+
+      // Calculate totals from remittance lines
+      const totalPaidAmount = remittance.remittance_lines.reduce(
+        (sum: number, line: any) => sum + line.payer_paid_amount, 
+        0
+      );
+      const totalPatientResponsibility = remittance.remittance_lines.reduce(
+        (sum: number, line: any) => sum + (line.copay_amount || 0) + (line.deductible_amount || 0), 
+        0
+      );
+      
+      // Get denial info from first denied line (if any)
+      const deniedLine = remittance.remittance_lines.find((line: any) => line.denial_info);
+      
+      // Update claim status in PostgreSQL with adjudication results
+      await this.claimStore.markClaimAdjudicated(claimMessage.claim.claim_id, {
+        status: totalPaidAmount > 0 ? 'paid' : 'denied',
+        paidAmount: totalPaidAmount,
+        patientResponsibility: totalPatientResponsibility,
+        denialReason: deniedLine?.denial_info?.description,
+        denialCode: deniedLine?.denial_info?.denial_code,
+        processingTimeMs: processingTime
+      });
+
       // Send remittance back to clearinghouse
       const remittanceMessage: RemittanceMessage = {
         correlation_id: claimMessage.correlation_id,
@@ -68,13 +96,7 @@ export class PayerService {
 
       await this.remittanceQueue.add(remittanceMessage);
 
-      // Track Step 4: Claims Adjudicated by Payers (Remittances Created)
-      if (this.onStep4Complete) {
-        this.onStep4Complete();
-      }
-
       this.claimsProcessed++;
-      const processingTime = Date.now() - startTime;
       
       // Log when claim processing completes (after delay)
       logger.info(`✅ ${this.config.name} COMPLETED claim ${claimMessage.claim.claim_id} after ${(processingTime/1000).toFixed(1)}s`);

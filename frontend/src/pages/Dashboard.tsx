@@ -122,7 +122,7 @@ export function Dashboard() {
         />
         <StatusCard
           title="Payment Rate"
-          value={`${stats?.billing?.paymentRate?.toFixed(1) || '0'}%`}
+          value={`${((stats?.billing?.totalPaidAmount / stats?.billing?.totalBilledAmount) * 100).toFixed(1) || '0'}%`}
           icon={BarChart3}
           loading={isLoading}
         />

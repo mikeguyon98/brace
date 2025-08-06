@@ -10,29 +10,30 @@ import { ARAgingService } from '../ar-aging';
 import { BillingStatisticsManager } from './statistics';
 import { BillingReportGenerator } from './reporting';
 import { BillingServiceConfig, RemittanceProcessingResult } from './interfaces';
+import { ClaimStore } from '../database';
 
 export class BillingService {
   private remittanceQueue: InMemoryQueue<RemittanceMessage>;
   private statisticsManager: BillingStatisticsManager;
   private reportGenerator: BillingReportGenerator;
   private config: BillingServiceConfig;
+  private claimStore: ClaimStore;
   private reportingInterval?: NodeJS.Timeout;
   private remittancesProcessed = 0;
   private arAgingService?: ARAgingService;
-  private onClaimProcessed?: () => void;
 
   constructor(
     remittanceQueue: InMemoryQueue<RemittanceMessage>,
+    claimStore: ClaimStore,
     config: BillingServiceConfig = {},
-    arAgingService?: ARAgingService,
-    onClaimProcessed?: () => void
+    arAgingService?: ARAgingService
   ) {
     this.remittanceQueue = remittanceQueue;
+    this.claimStore = claimStore;
     this.config = {
       reportingIntervalSeconds: config.reportingIntervalSeconds || 30,
     };
     this.arAgingService = arAgingService;
-    this.onClaimProcessed = onClaimProcessed;
 
     this.statisticsManager = new BillingStatisticsManager();
     this.reportGenerator = new BillingReportGenerator(this.statisticsManager);
@@ -65,16 +66,15 @@ export class BillingService {
         Date.now() - startTime
       );
 
+      // Mark claim as fully processed (billed) in PostgreSQL
+      const claimId = remittanceMessage.remittance.claim_id;
+      await this.claimStore.markClaimBilled(claimId);
+
       this.remittancesProcessed++;
 
       // Record remittance completion for AR Aging
       if (this.arAgingService) {
         this.arAgingService.recordClaimCompletion(remittanceMessage);
-      }
-
-      // Notify main app that a claim has been processed
-      if (this.onClaimProcessed) {
-        this.onClaimProcessed();
       }
 
       // Log processing result

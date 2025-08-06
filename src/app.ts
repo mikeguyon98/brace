@@ -5,7 +5,8 @@ import { readFileSync, promises as fs } from 'fs';
 import { join } from 'path';
 import { logger } from './shared/logger';
 import { SingleProcessConfig, ClaimMessage, RemittanceMessage } from './shared/types';
-import { queueManager } from './queue/in-memory-queue';
+import { queueManager, InMemoryQueue } from './queue/in-memory-queue';
+import { ClaimStore, DatabaseConfig } from './services/database';
 import { IngestionService } from './services/ingestion';
 import { ClearinghouseService } from './services/clearinghouse';
 import { PayerService } from './services/payer';
@@ -27,7 +28,7 @@ const DEFAULT_CONFIG: SingleProcessConfig = {
     database: {
       host: 'localhost', 
       port: 5433,
-      database: 'billing',
+      database: 'billing_simulator',
       username: 'postgres',
       password: 'postgres',
     },
@@ -43,6 +44,11 @@ const DEFAULT_CONFIG: SingleProcessConfig = {
         copay_fixed_amount: 25.00,
         deductible_percentage: 0.10,
       },
+      denial_settings: {
+        denial_rate: 0.15,  // 15% denial rate
+        hard_denial_rate: 0.70,  // 70% of denials are hard denials
+        preferred_categories: [],
+      },
     },
     {
       payer_id: 'united_health_group',
@@ -52,6 +58,11 @@ const DEFAULT_CONFIG: SingleProcessConfig = {
         payer_percentage: 0.75,
         copay_fixed_amount: 30.00,
         deductible_percentage: 0.15,
+      },
+      denial_settings: {
+        denial_rate: 0.25,  // 25% denial rate - high rejection payer
+        hard_denial_rate: 0.80,  // 80% of denials are hard denials
+        preferred_categories: [],
       },
     },
     {
@@ -63,6 +74,11 @@ const DEFAULT_CONFIG: SingleProcessConfig = {
         copay_fixed_amount: 15.00,
         deductible_percentage: 0.20,
       },
+      denial_settings: {
+        denial_rate: 0.20,  // 20% denial rate
+        hard_denial_rate: 0.60,  // 60% of denials are hard denials
+        preferred_categories: [],
+      },
     },
   ],
   ingestion: {
@@ -72,6 +88,7 @@ const DEFAULT_CONFIG: SingleProcessConfig = {
 
 class BillingSimulator {
   private config: SingleProcessConfig;
+  private claimStore!: ClaimStore;
   private ingestionService!: IngestionService;
   private clearinghouseService!: ClearinghouseService;
   private payerServices: Map<string, PayerService> = new Map();
@@ -79,61 +96,70 @@ class BillingSimulator {
   private arAgingService!: ARAgingService;
   private isRunning = false;
   
-  // Claim tracking for completion detection
-  private totalClaimsToProcess = 0;
-  private claimsProcessedByBilling = 0;
+  // Simple completion tracking
   private completionCheckInterval?: NodeJS.Timeout;
-  
-  // Fine-grained pipeline tracking - tracks claims CURRENTLY in each step
-  private pipelineStats = {
-    step1_being_ingested: 0,              // Claims currently being read from file
-    step2_in_clearinghouse_queue: 0,      // Claims waiting in clearinghouse queue
-    step3_with_payers: 0,                 // Claims currently being processed by payers
-    step4_remittances_in_billing_queue: 0, // Remittances waiting in billing queue
-    step5_fully_complete: 0               // Claims fully processed through billing
-  };
 
   constructor(config: SingleProcessConfig = DEFAULT_CONFIG) {
     this.config = config;
-    this.setupServices();
   }
 
-  private setupServices(): void {
-    logger.info('Initializing billing simulator services...');
+  async initialize(): Promise<void> {
+    await this.setupServices();
+  }
 
-    // Create queues with optimized concurrency
-    const claimsQueue = queueManager.getQueue<ClaimMessage>('claims-ingestion', {
-      concurrency: 25, // Increased from 10
-      maxAttempts: 1,
+  private async setupServices(): Promise<void> {
+    // Initialize PostgreSQL claim store
+    const dbConfig: DatabaseConfig = {
+      host: this.config.billing.database.host,
+      port: this.config.billing.database.port,
+      database: 'billing_simulator', // Use a dedicated database
+      user: this.config.billing.database.username,
+      password: this.config.billing.database.password,
+      ssl: false,
+      max: 20
+    };
+
+    this.claimStore = new ClaimStore(dbConfig);
+    await this.claimStore.initialize();
+
+    // Initialize queues - claims queue processed by clearinghouse service directly
+    const claimsQueue = queueManager.getQueue<ClaimMessage>('claims', {
+      concurrency: 5,
+      maxAttempts: 3,
+      retryDelay: 1000,
+      useWorkerThreads: false // Disable worker threads - clearinghouse service handles this
     });
 
-    const remittanceQueue = queueManager.getQueue<RemittanceMessage>('remittance-return', {
-      concurrency: 20, // Increased from 5 for faster billing processing
-      maxAttempts: 5,
-      retryDelay: 500,
+    const remittanceQueue = queueManager.getQueue<RemittanceMessage>('remittance', {
+      concurrency: 8, // Process 8 remittances simultaneously
+      maxAttempts: 3,
+      retryDelay: 1000,
+      useWorkerThreads: true,
+      workerScript: require.resolve('./queue/workers/claim-processor-worker.js')
     });
 
-    // Create payer queues
-    const payerQueues = new Map();
-    const payerConfigs = new Map();
+    // Initialize payer queues with parallel processing
+    const payerQueues = new Map<string, InMemoryQueue<ClaimMessage>>();
+    const payerConfigs = new Map<string, any>();
 
     for (const payerConfig of this.config.payers) {
       const payerQueue = queueManager.getQueue<ClaimMessage>(`payer-${payerConfig.payer_id.toLowerCase()}`, {
-        concurrency: 25,
+        concurrency: 5, // Each payer can process 5 claims simultaneously
         maxAttempts: 3,
         retryDelay: 1000,
+        useWorkerThreads: false, // Disable worker threads - payer services handle processing directly
+        workerScript: require.resolve('./queue/workers/claim-processor-worker.js')
       });
       
       payerQueues.set(payerConfig.payer_id, payerQueue);
       payerConfigs.set(payerConfig.payer_id, payerConfig);
     }
 
-    // Initialize services with pipeline tracking callbacks
+    // Initialize services with PostgreSQL integration (no pipeline tracking)
     this.ingestionService = new IngestionService(
       claimsQueue, 
-      this.config.ingestion,
-      () => this.claimStartsIngestion(),
-      () => this.claimFinishesIngestion()
+      this.claimStore,
+      this.config.ingestion
     );
 
     // Initialize AR Aging service first
@@ -144,31 +170,35 @@ class BillingSimulator {
       remittanceQueue,
       payerQueues,
       payerConfigs,
-      this.arAgingService,
-      () => this.claimForwardedToPayer()
+      this.claimStore,
+      this.arAgingService
     );
 
     // Initialize payer services
     for (const payerConfig of this.config.payers) {
       const payerQueue = payerQueues.get(payerConfig.payer_id);
+      if (!payerQueue) {
+        throw new Error(`Payer queue not found for ${payerConfig.payer_id}`);
+      }
       const payerService = new PayerService(
         payerConfig, 
         payerQueue, 
         remittanceQueue,
-        () => this.claimAdjudicatedByPayer()
+        this.claimStore
       );
       this.payerServices.set(payerConfig.payer_id, payerService);
     }
 
     this.billingService = new BillingService(
       remittanceQueue, 
+      this.claimStore,
       this.config.billing, 
-      this.arAgingService,
-      () => this.incrementProcessedClaims()
+      this.arAgingService
     );
 
-    logger.info(`Initialized ${this.config.payers.length} payer services`);
-    logger.info('All services initialized successfully including AR Aging');
+    logger.info(`Initialized ${this.config.payers.length} payer services with PostgreSQL storage`);
+    logger.info('All services initialized successfully with PostgreSQL integration');
+    logger.info('💡 Claims are now stored in PostgreSQL for real-time tracking');
   }
 
   async start(): Promise<void> {
@@ -202,164 +232,69 @@ class BillingSimulator {
       clearInterval(this.completionCheckInterval);
     }
 
+    // Stop all services
     this.billingService.stop();
     this.arAgingService.stop();
+    
+    // Stop all queues and their worker threads
+    const allQueues = queueManager.getAllQueues();
+    for (const queue of allQueues.values()) {
+      await queue.stop();
+    }
+    
     queueManager.clear();
 
     logger.info('Billing simulator stopped');
   }
 
   /**
-   * Set the total number of claims to process
+   * Get real-time statistics from PostgreSQL
    */
-  setTotalClaimsToProcess(count: number): void {
-    this.totalClaimsToProcess = count;
-    this.claimsProcessedByBilling = 0;
-    logger.info(`📊 Tracking ${count} claims for completion`);
-  }
+  async getOverallStats(): Promise<any> {
+    try {
+      const processingStats = await this.claimStore.getProcessingStats();
+      const payerStats = await this.claimStore.getPayerStats();
+      const agingStats = await this.claimStore.getAgingStats();
+      const recentActivity = await this.claimStore.getRecentActivity(10);
 
-  /**
-   * Increment the count of claims processed by billing
-   */
-  incrementProcessedClaims(): void {
-    this.claimsProcessedByBilling++;
-    // Move from billing queue to fully complete
-    this.pipelineStats.step4_remittances_in_billing_queue--;
-    this.pipelineStats.step5_fully_complete++;
-    logger.info(`✅ Claim processed by billing: ${this.claimsProcessedByBilling}/${this.totalClaimsToProcess}`);
-  }
+      // Get queue statistics for monitoring
+      const allQueues = queueManager.getAllQueues();
+      const queueStats: any = {};
+      
+      for (const [name, queue] of allQueues) {
+        queueStats[name] = queue.getStats();
+      }
 
-  // Pipeline step tracking methods - claims enter and leave each step
-  claimStartsIngestion(): void {
-    this.pipelineStats.step1_being_ingested++;
-  }
-
-  claimFinishesIngestion(): void {
-    this.pipelineStats.step1_being_ingested--;
-    this.pipelineStats.step2_in_clearinghouse_queue++;
-  }
-
-  claimForwardedToPayer(): void {
-    this.pipelineStats.step2_in_clearinghouse_queue--;
-    this.pipelineStats.step3_with_payers++;
-  }
-
-  claimAdjudicatedByPayer(): void {
-    this.pipelineStats.step3_with_payers--;
-    this.pipelineStats.step4_remittances_in_billing_queue++;
-  }
-
-  getPipelineStats() {
-    return { ...this.pipelineStats };
-  }
-
-  /**
-   * Check if all claims have been processed
-   */
-  areAllClaimsProcessed(): boolean {
-    return this.totalClaimsToProcess > 0 && this.claimsProcessedByBilling >= this.totalClaimsToProcess;
-  }
-
-  /**
-   * Wait for all claims to be processed with live claim state tracking
-   */
-  async waitForAllClaimsToComplete(): Promise<void> {
-    if (this.totalClaimsToProcess === 0) {
-      logger.info('No claims to track - exiting immediately');
-      return;
+      return {
+        processing: processingStats,
+        payers: payerStats,
+        aging: agingStats,
+        recentActivity,
+        queues: queueStats,
+        timestamp: new Date().toISOString()
+      };
+    } catch (error) {
+      logger.error('Error getting overall stats:', error);
+      throw error;
     }
-
-    logger.info(`⏳ Waiting for all ${this.totalClaimsToProcess} claims to be processed...`);
-    logger.info('📊 Live claim state tracking every 5 seconds');
-
-    // Show initial pipeline status immediately
-    this.printClaimStateTracking();
-    
-    // Check if already complete (in case of very fast processing)
-    if (this.areAllClaimsProcessed()) {
-      logger.info(`🎉 ALL CLAIMS COMPLETED! Processed ${this.claimsProcessedByBilling}/${this.totalClaimsToProcess} claims (100%)`);
-      return;
-    }
-
-    return new Promise((resolve) => {
-      this.completionCheckInterval = setInterval(() => {
-        this.printClaimStateTracking();
-        
-        if (this.areAllClaimsProcessed()) {
-          logger.info(`🎉 ALL CLAIMS COMPLETED! Processed ${this.claimsProcessedByBilling}/${this.totalClaimsToProcess} claims (100%)`);
-          clearInterval(this.completionCheckInterval!);
-          resolve();
-        }
-      }, 5000); // Check every 5 seconds
-    });
   }
 
-  /**
-   * Print detailed pipeline tracking and AR aging report
-   */
-  private printClaimStateTracking(): void {
-    const claimStats = this.arAgingService.getClaimStateStats();
-    const billingStats = this.billingService.getStats();
-    const queueStats = queueManager.getOverallStats();
-    const pipelineStats = this.getPipelineStats();
-    
-    const progress = (this.claimsProcessedByBilling / this.totalClaimsToProcess * 100).toFixed(1);
-    
-    console.log('\n' + '═'.repeat(120));
-    console.log(`🏥 HEALTHCARE BILLING PIPELINE TRACKING - ${new Date().toLocaleTimeString()}`);
-    console.log('═'.repeat(120));
-    
-    // Overall progress
-    console.log(`🎯 OVERALL PROGRESS: ${this.claimsProcessedByBilling}/${this.totalClaimsToProcess} completed (${progress}%)`);
-    console.log(`💰 FINANCIAL: $${billingStats.totalBilledAmount.toLocaleString('en-US', { minimumFractionDigits: 2 })} billed | $${billingStats.totalPaidAmount.toLocaleString('en-US', { minimumFractionDigits: 2 })} paid | ${((billingStats.totalPaidAmount / Math.max(billingStats.totalBilledAmount, 1)) * 100).toFixed(1)}% rate`);
-    
-    console.log('\n📋 DETAILED PIPELINE STATUS:');
-    console.log('─'.repeat(120));
-    console.log('| Step | Description                                    | Count | Status |');
-    console.log('─'.repeat(120));
-    console.log(`| 1️⃣   | Claims Being Ingested from File               | ${String(pipelineStats.step1_being_ingested).padStart(5)} | ${pipelineStats.step1_being_ingested === 0 ? '✅ Complete' : '🔄 Processing'} |`);
-    console.log(`| 2️⃣   | Claims in Clearinghouse Queue                 | ${String(pipelineStats.step2_in_clearinghouse_queue).padStart(5)} | ${pipelineStats.step2_in_clearinghouse_queue === 0 ? '✅ Complete' : '🔄 Processing'} |`);
-    console.log(`| 3️⃣   | Claims with Payers (Being Adjudicated)        | ${String(pipelineStats.step3_with_payers).padStart(5)} | ${pipelineStats.step3_with_payers === 0 ? '✅ Complete' : '🔄 Processing'} |`);
-    console.log(`| 4️⃣   | Remittances in Billing Queue                  | ${String(pipelineStats.step4_remittances_in_billing_queue).padStart(5)} | ${pipelineStats.step4_remittances_in_billing_queue === 0 ? '✅ Complete' : '🔄 Processing'} |`);
-    console.log(`| 5️⃣   | Claims Fully Complete                          | ${String(pipelineStats.step5_fully_complete).padStart(5)} | ${pipelineStats.step5_fully_complete === this.totalClaimsToProcess ? '✅ All Done' : '🔄 In Progress'} |`);
-    console.log('─'.repeat(120));
-    
-    console.log(`\n⚡ QUEUE STATUS: ${queueStats.totalPending} pending | ${queueStats.totalProcessing} processing | Outstanding: ${claimStats.outstanding}`);
-    
-    // Show AR Aging Report (pipeline stats already shown above)
-    console.log('\n' + '─'.repeat(120));
-    this.arAgingService.printFormattedReport();
-    
-    console.log('─'.repeat(120));
-    console.log(`📈 Next update in 5 seconds...`);
-    console.log('═'.repeat(120) + '\n');
-  }
+
 
   async ingestFile(filePath: string): Promise<void> {
     if (!this.isRunning) {
       throw new Error('Simulator must be started before ingesting files');
     }
 
-    logger.info(`Starting file ingestion: ${filePath}`);
+    logger.info(`📁 Starting file ingestion: ${filePath}`);
     
-    // Count claims before ingestion
-    const claimCount = await this.countClaimsInFile(filePath);
-    this.setTotalClaimsToProcess(claimCount);
-    
-    // Start live tracking immediately (parallel with ingestion)
-    const trackingPromise = this.waitForAllClaimsToComplete();
-    
-    // Start ingestion (parallel with tracking)
-    const ingestionPromise = this.ingestionService.ingestFile(filePath);
-    
-    // Wait for both to complete
-    await Promise.all([ingestionPromise, trackingPromise]);
-    
-    logger.info('File ingestion completed');
-    logger.info('🎉 All claims have been fully processed!');
-    
-    // Generate final comprehensive AR Aging report
-    await this.generateFinalARAgingReport();
+    try {
+      await this.ingestionService.ingestFile(filePath);
+      logger.info('📥 File ingestion completed successfully');
+    } catch (error) {
+      logger.error('❌ File ingestion failed:', error);
+      throw error;
+    }
   }
 
   /**
@@ -373,8 +308,8 @@ class BillingSimulator {
     // Give the AR Aging service a moment to process the last remittances
     await new Promise(resolve => setTimeout(resolve, 1000));
     
-    // Generate the final report with pipeline stats
-    this.arAgingService.printFormattedReport(this.pipelineStats);
+    // Generate the final report
+    this.arAgingService.printFormattedReport();
     
     // Get billing statistics for final summary
     const billingStats = this.billingService.getStats();
@@ -467,7 +402,8 @@ class BillingSimulator {
     this.billingService.printReport();
   }
 
-  getOverallStats() {
+  // Legacy method - now uses PostgreSQL stats
+  getStats() {
     return {
       isRunning: this.isRunning,
       queues: queueManager.getOverallStats(),
@@ -507,6 +443,7 @@ async function main() {
       }
 
       const simulator = new BillingSimulator(config);
+      await simulator.initialize();
       await simulator.start();
 
       // Handle graceful shutdown
@@ -551,6 +488,7 @@ async function main() {
       }
 
       const simulator = new BillingSimulator(config);
+      await simulator.initialize();
       await simulator.start();
 
       try {

@@ -1,0 +1,84 @@
+Generating 10 claims to claims.jsonl...
+Successfully generated 10 claims in claims.jsonl
+
+Sample claim:
+{
+  "claim_id": "CLMCKBR9C40",
+  "place_of_service_code": 38,
+  "insurance": {
+    "payer_id": "anthem",
+    "patient_member_id": "MEMMCWWSLBPHIEQ"
+  },
+  "patient": {
+    "first_name": "Robert",
+    "last_name": "Wilson",
+    "gender": "m",
+    "dob": "2000-09-14",
+    "address": {
+      "street": "8307 Main St",
+      "city": "Charlotte",
+      "state": "GA",
+      "zip": "89111",
+      "country": "US"
+    }
+  },
+  "organization": {
+    "name": "Downtown Medical Associates",
+    "billing_npi": "5738350818",
+    "ein": "75-8434975",
+    "contact": {
+      "first_name": "Emily",
+      "last_name": "Gonzalez",
+      "phone_number": "415-331-6292"
+    },
+    "address": {
+      "street": "1294 Elm St",
+      "city": "Philadelphia",
+      "state": "FL",
+      "zip": "85660",
+      "country": "US"
+    }
+  },
+  "rendering_provider": {
+    "first_name": "Jane",
+    "last_name": "Brown",
+    "npi": "2333077596"
+  },
+  "service_lines": [
+    {
+      "service_line_id": "SLLONNXO5G",
+      "procedure_code": "80061",
+      "units": 3,
+      "details": "80061 - Medical procedure",
+      "unit_charge_currency": "USD",
+      "unit_charge_amount": 134.21
+    },
+    {
+      "service_line_id": "SL6J481CNU",
+      "procedure_code": "99282",
+      "units": 2,
+      "details": "99282 - Medical procedure",
+      "unit_charge_currency": "USD",
+      "unit_charge_amount": 340.07
+    },
+    {
+      "service_line_id": "SL8L6OV7HM",
+      "procedure_code": "93000",
+      "units": 2,
+      "details": "93000 - Medical procedure",
+      "unit_charge_currency": "USD",
+      "unit_charge_amount": 352.44
+    }
+  ]
+}
+
+Payer distribution:
+  medicare: ~33%
+  united_health_group: ~33%
+  anthem: ~33%
+
+Note: Generated claims now match the new PayerClaim JSON schema format
+- Service lines include unit_charge_currency and unit_charge_amount
+- Claims include patient, organization, and rendering_provider objects
+- Insurance info is nested under insurance object
+- Place of service code is included

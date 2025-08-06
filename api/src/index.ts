@@ -11,11 +11,10 @@ import path from 'path';
 import fs from 'fs-extra';
 import { z } from 'zod';
 import winston from 'winston';
-import { Worker } from 'worker_threads';
 import os from 'os';
 
 // Import the existing simulator - using require to avoid TypeScript path issues
-const { BillingSimulator, DEFAULT_CONFIG } = require('../../src/app');
+const { BillingSimulator, DEFAULT_CONFIG } = require('../../src/dist/app.js');
 
 // Configure logging
 const logger = winston.createLogger({
@@ -45,11 +44,11 @@ fs.ensureDirSync('logs');
 const app: express.Application = express();
 const PORT = process.env['PORT'] || 3001;
 
-// Get number of CPU cores for worker threads
+// Get system info for logging
 const numCPUs = os.cpus().length;
-const workerCount = Math.max(1, Math.min(numCPUs - 1, 4)); // Use up to 4 workers, leave 1 core for main thread
 
-logger.info(`🚀 Starting API server with ${workerCount} worker threads on ${numCPUs} CPU cores`);
+logger.info(`🚀 Starting API server on ${numCPUs} CPU cores`);
+logger.info(`💡 Parallelization is handled at the service layer, not API layer`);
 
 // Security middleware
 app.use(helmet());
@@ -112,57 +111,6 @@ let processingStatus = {
   estimatedCompletion: null as Date | null
 };
 
-// Worker thread pool for heavy processing
-const workerPool: Worker[] = [];
-let currentWorkerIndex = 0;
-
-// Initialize worker pool
-function initializeWorkerPool() {
-  for (let i = 0; i < workerCount; i++) {
-    const worker = new Worker(`
-      const { parentPort } = require('worker_threads');
-      
-      parentPort.on('message', (data) => {
-        // Handle different types of work
-        switch (data.type) {
-          case 'fileProcessing':
-            // Simulate file processing work
-            setTimeout(() => {
-              parentPort.postMessage({
-                type: 'fileProcessingComplete',
-                result: data.payload,
-                workerId: ${i}
-              });
-            }, 100);
-            break;
-          case 'dataValidation':
-            // Simulate data validation work
-            setTimeout(() => {
-              parentPort.postMessage({
-                type: 'validationComplete',
-                result: { valid: true, data: data.payload },
-                workerId: ${i}
-              });
-            }, 50);
-            break;
-          default:
-            parentPort.postMessage({ type: 'unknown', workerId: ${i} });
-        }
-      });
-    `, { eval: true });
-    
-    workerPool.push(worker);
-    logger.info(`Worker thread ${i + 1} initialized`);
-  }
-}
-
-// Get next available worker
-function getNextWorker(): Worker {
-  const worker = workerPool[currentWorkerIndex];
-  currentWorkerIndex = (currentWorkerIndex + 1) % workerPool.length;
-  return worker;
-}
-
 // Validation schemas
 const PayerConfigSchema = z.object({
   payer_id: z.string(),
@@ -217,7 +165,6 @@ app.get('/api/health', (_req: any, res: any) => {
     status: 'healthy',
     timestamp: new Date().toISOString(),
     version: '2.0.0',
-    workers: workerPool.length,
     cpuCores: numCPUs
   });
 });
@@ -226,7 +173,6 @@ app.get('/api/health', (_req: any, res: any) => {
 app.get('/api/system/info', (_req: any, res: any) => {
   res.json({
     cpuCores: numCPUs,
-    workerThreads: workerPool.length,
     memoryUsage: process.memoryUsage(),
     uptime: process.uptime(),
     platform: process.platform,
@@ -299,6 +245,7 @@ app.post('/api/simulator/start', async (req: any, res: any) => {
     
     // Create new simulator instance
     activeSimulator = new BillingSimulator(validatedConfig);
+    await activeSimulator.initialize();
     await activeSimulator.start();
     
     processingStatus = {
@@ -348,7 +295,7 @@ app.post('/api/simulator/stop', async (_req: any, res: any) => {
 });
 
 // Get simulator status
-app.get('/api/simulator/status', (_req: any, res: any) => {
+app.get('/api/simulator/status', async (_req: any, res: any) => {
   if (!activeSimulator) {
     return res.json({
       isRunning: false,
@@ -356,18 +303,67 @@ app.get('/api/simulator/status', (_req: any, res: any) => {
     });
   }
 
-  const stats = activeSimulator.getOverallStats();
-  res.json({
-    isRunning: processingStatus.isRunning,
-    status: processingStatus,
-    stats: {
-      queues: stats.queues,
-      ingestion: stats.ingestion,
-      clearinghouse: stats.clearinghouse,
-      billing: stats.billing,
-      payers: stats.payers
-    }
-  });
+  try {
+    // Get real-time stats from PostgreSQL
+    const stats = await activeSimulator.getOverallStats();
+    
+    // Transform data to match frontend expectations
+    const transformedStats = {
+      isRunning: processingStatus.isRunning,
+      queues: {
+        totalQueues: Object.keys(stats.queues).length,
+        totalPending: Object.values(stats.queues).reduce((sum: number, q: any) => sum + q.pending, 0),
+        totalProcessing: Object.values(stats.queues).reduce((sum: number, q: any) => sum + q.processing, 0)
+      },
+      ingestion: {
+        filesProcessed: 1, // Based on current file processing
+        claimsProcessed: parseInt(stats.processing.total_claims) || 0,
+        errors: 0
+      },
+      clearinghouse: {
+        claimsProcessed: parseInt(stats.processing.routed_claims) || 0,
+        claimsRouted: parseInt(stats.processing.routed_claims) || 0,
+        errors: 0
+      },
+      billing: {
+        totalClaims: parseInt(stats.processing.total_claims) || 0,
+        totalBilledAmount: parseFloat(stats.processing.total_billed_amount) || 0,
+        totalPaidAmount: parseFloat(stats.processing.total_paid_amount) || 0,
+        totalPatientResponsibility: parseFloat(stats.processing.total_patient_responsibility) || 0,
+        payerBreakdown: new Map(),
+        deniedClaims: parseInt(stats.processing.denied_claims) || 0
+      },
+      payers: stats.payers.map((payer: any) => ({
+        payerId: payer.payer_id,
+        payerName: payer.payer_name,
+        claimsProcessed: parseInt(payer.total_claims) || 0,
+        deniedClaims: parseInt(payer.denied_claims) || 0,
+        averageProcessingTime: parseInt(payer.avg_processing_time_ms) || 0,
+        errors: 0
+      })),
+      aging: stats.aging.map((aging: any) => ({
+        payerId: aging.payer_id,
+        payerName: aging.payer_name,
+        bucket0To1Min: parseInt(aging.bucket_0_1_min) || 0,
+        bucket1To2Min: parseInt(aging.bucket_1_2_min) || 0,
+        bucket2To3Min: parseInt(aging.bucket_2_3_min) || 0,
+        bucket3PlusMin: parseInt(aging.bucket_3_plus_min) || 0,
+        outstandingClaims: parseInt(aging.outstanding_claims) || 0,
+        avgAgeMinutes: parseFloat(aging.avg_age_minutes) || 0,
+        oldestClaimMinutes: parseFloat(aging.oldest_claim_minutes) || 0,
+        outstandingAmount: parseFloat(aging.outstanding_amount) || 0
+      }))
+    };
+    
+    res.json({
+      isRunning: processingStatus.isRunning,
+      status: processingStatus,
+      stats: transformedStats
+    });
+  } catch (error) {
+    logger.error('Error getting simulator status:', error);
+    res.status(500).json({ error: 'Failed to get simulator status' });
+  }
 });
 
 // Upload and process claims file
@@ -410,21 +406,65 @@ app.post('/api/simulator/process', upload.single('claimsFile'), async (req: any,
 });
 
 // Get processing results
-app.get('/api/simulator/results', (_req: any, res: any) => {
+app.get('/api/simulator/results', async (_req: any, res: any) => {
   if (!activeSimulator) {
     return res.status(400).json({ error: 'No simulator is currently running' });
   }
 
   try {
-    const stats = activeSimulator.getOverallStats();
-    res.json({
-      stats: {
-        queues: stats.queues,
-        ingestion: stats.ingestion,
-        clearinghouse: stats.clearinghouse,
-        billing: stats.billing,
-        payers: stats.payers
+    // Get comprehensive stats from PostgreSQL
+    const stats = await activeSimulator.getOverallStats();
+    
+    // Transform data to match frontend expectations
+    const transformedStats = {
+      isRunning: processingStatus.isRunning,
+      queues: {
+        totalQueues: Object.keys(stats.queues).length,
+        totalPending: Object.values(stats.queues).reduce((sum: number, q: any) => sum + q.pending, 0),
+        totalProcessing: Object.values(stats.queues).reduce((sum: number, q: any) => sum + q.processing, 0)
       },
+      ingestion: {
+        filesProcessed: 1, // Based on current file processing
+        claimsProcessed: parseInt(stats.processing.total_claims) || 0,
+        errors: 0
+      },
+      clearinghouse: {
+        claimsProcessed: parseInt(stats.processing.routed_claims) || 0,
+        claimsRouted: parseInt(stats.processing.routed_claims) || 0,
+        errors: 0
+      },
+      billing: {
+        totalClaims: parseInt(stats.processing.total_claims) || 0,
+        totalBilledAmount: parseFloat(stats.processing.total_billed_amount) || 0,
+        totalPaidAmount: parseFloat(stats.processing.total_paid_amount) || 0,
+        totalPatientResponsibility: parseFloat(stats.processing.total_patient_responsibility) || 0,
+        payerBreakdown: new Map(),
+        deniedClaims: parseInt(stats.processing.denied_claims) || 0
+      },
+      payers: stats.payers.map((payer: any) => ({
+        payerId: payer.payer_id,
+        payerName: payer.payer_name,
+        claimsProcessed: parseInt(payer.total_claims) || 0,
+        deniedClaims: parseInt(payer.denied_claims) || 0,
+        averageProcessingTime: parseInt(payer.avg_processing_time_ms) || 0,
+        errors: 0
+      })),
+      aging: stats.aging.map((aging: any) => ({
+        payerId: aging.payer_id,
+        payerName: aging.payer_name,
+        bucket0To1Min: parseInt(aging.bucket_0_1_min) || 0,
+        bucket1To2Min: parseInt(aging.bucket_1_2_min) || 0,
+        bucket2To3Min: parseInt(aging.bucket_2_3_min) || 0,
+        bucket3PlusMin: parseInt(aging.bucket_3_plus_min) || 0,
+        outstandingClaims: parseInt(aging.outstanding_claims) || 0,
+        avgAgeMinutes: parseFloat(aging.avg_age_minutes) || 0,
+        oldestClaimMinutes: parseFloat(aging.oldest_claim_minutes) || 0,
+        outstandingAmount: parseFloat(aging.outstanding_amount) || 0
+      }))
+    };
+    
+    res.json({
+      stats: transformedStats,
       processingStatus,
       timestamp: new Date().toISOString()
     });
@@ -490,33 +530,28 @@ function getPresetDescription(filename: string): string {
     'aging-progression.json': 'Shows aging progression over time',
     'aging-visual-demo.json': 'Visual aging analysis demo',
     'denial-demo.json': 'Demonstrates claim denial scenarios',
-    'parallel-demo.json': 'Parallel processing demonstration'
+    'parallel-demo.json': 'Parallel processing demonstration',
+    'service-layer-parallelization.json': 'Optimized for parallel processing at the service layer using worker threads'
   };
   
   return descriptions[filename] || 'Custom configuration preset';
 }
-
-// Initialize worker pool
-initializeWorkerPool();
 
 // Start server
 app.listen(PORT, () => {
   logger.info(`🚀 Billing Simulator API server running on port ${PORT}`);
   logger.info(`📊 Health check: http://localhost:${PORT}/api/health`);
   logger.info(`🌐 API documentation: http://localhost:${PORT}/api/docs`);
-  logger.info(`⚡ Using ${workerCount} worker threads for parallel processing`);
 });
 
 // Graceful shutdown
 process.on('SIGTERM', () => {
   logger.info('SIGTERM received, shutting down gracefully...');
-  workerPool.forEach(worker => worker.terminate());
   process.exit(0);
 });
 
 process.on('SIGINT', () => {
   logger.info('SIGINT received, shutting down gracefully...');
-  workerPool.forEach(worker => worker.terminate());
   process.exit(0);
 });
 

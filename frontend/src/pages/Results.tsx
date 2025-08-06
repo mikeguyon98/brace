@@ -142,6 +142,12 @@ export function Results() {
                 ${stats.billing?.totalPatientResponsibility?.toLocaleString() || '0'}
               </span>
             </div>
+            <div className="flex items-center justify-between p-3 bg-red-50 rounded">
+              <span className="text-sm font-medium text-red-700">Total Denied Claims</span>
+              <span className="text-sm font-bold text-red-900">
+                {stats.billing?.deniedClaims || 0}
+              </span>
+            </div>
           </div>
         </div>
 
@@ -153,11 +159,16 @@ export function Results() {
               <div key={payer.payerId} className="flex items-center justify-between p-3 bg-gray-50 rounded">
                 <div>
                   <p className="text-sm font-medium text-gray-900">{payer.payerName}</p>
-                  <p className="text-xs text-gray-600">{payer.claimsProcessed} claims</p>
+                  <p className="text-xs text-gray-600">
+                    {payer.claimsProcessed} claims • {payer.deniedClaims || 0} denied
+                  </p>
                 </div>
                 <div className="text-right">
                   <p className="text-sm font-bold text-gray-900">
                     {(payer.claimsProcessed / (stats.billing?.totalClaims || 1) * 100).toFixed(1)}%
+                  </p>
+                  <p className="text-xs text-red-600">
+                    {payer.deniedClaims ? ((payer.deniedClaims / payer.claimsProcessed) * 100).toFixed(1) : 0}% denied
                   </p>
                 </div>
               </div>
@@ -165,6 +176,55 @@ export function Results() {
           </div>
         </div>
       </div>
+
+      {/* AR Aging Analysis */}
+      {stats.aging && stats.aging.length > 0 && (
+        <div className="card p-6">
+          <h2 className="text-lg font-semibold text-gray-900 mb-4">AR Aging Analysis</h2>
+          <div className="space-y-4">
+            {stats.aging.map((aging) => (
+              <div key={aging.payerId} className="border rounded-lg p-4">
+                <div className="flex items-center justify-between mb-3">
+                  <h3 className="text-sm font-semibold text-gray-900">{aging.payerName}</h3>
+                  <div className="text-right">
+                    <p className="text-sm font-bold text-gray-900">
+                      Avg: {aging.avgAgeMinutes.toFixed(1)}min
+                    </p>
+                    <p className="text-xs text-gray-600">
+                      Outstanding: ${aging.outstandingAmount.toLocaleString()}
+                    </p>
+                  </div>
+                </div>
+                <div className="grid grid-cols-4 gap-2 text-center">
+                  <div className="bg-green-50 p-2 rounded">
+                    <p className="text-xs font-medium text-green-800">0-1 min</p>
+                    <p className="text-sm font-bold text-green-900">{aging.bucket0To1Min}</p>
+                  </div>
+                  <div className="bg-yellow-50 p-2 rounded">
+                    <p className="text-xs font-medium text-yellow-800">1-2 min</p>
+                    <p className="text-sm font-bold text-yellow-900">{aging.bucket1To2Min}</p>
+                  </div>
+                  <div className="bg-orange-50 p-2 rounded">
+                    <p className="text-xs font-medium text-orange-800">2-3 min</p>
+                    <p className="text-sm font-bold text-orange-900">{aging.bucket2To3Min}</p>
+                  </div>
+                  <div className="bg-red-50 p-2 rounded">
+                    <p className="text-xs font-medium text-red-800">3+ min</p>
+                    <p className="text-sm font-bold text-red-900">{aging.bucket3PlusMin}</p>
+                  </div>
+                </div>
+                {aging.outstandingClaims > 0 && (
+                  <div className="mt-2 p-2 bg-red-50 rounded text-center">
+                    <p className="text-xs font-medium text-red-800">
+                      ⚠️ {aging.outstandingClaims} claims still outstanding
+                    </p>
+                  </div>
+                )}
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
 
       {/* Payer Breakdown Chart */}
       {stats.payers && stats.payers.length > 0 && (
