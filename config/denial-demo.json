@@ -16,12 +16,12 @@
       "username": "postgres",
       "password": "postgres"
     },
-    "reportingIntervalSeconds": 30
+    "reportingIntervalSeconds": 15
   },
   "payers": [
     {
       "payer_id": "AETNA_001",
-      "name": "Aetna",
+      "name": "Aetna (Strict)",
       "processing_delay_ms": {
         "min": 100,
         "max": 500
@@ -32,14 +32,14 @@
         "deductible_percentage": 0.10
       },
       "denial_settings": {
-        "denial_rate": 0.08,
-        "hard_denial_rate": 0.75,
-        "preferred_categories": ["AUTHORIZATION", "MEDICAL_NECESSITY"]
+        "denial_rate": 0.25,
+        "hard_denial_rate": 0.80,
+        "preferred_categories": ["authorization", "medical_necessity", "eligibility"]
       }
     },
-    {
-      "payer_id": "BCBS_001", 
-      "name": "Blue Cross Blue Shield",
+        {
+      "payer_id": "BCBS_001",
+      "name": "Blue Cross Blue Shield (High Rejection)",
       "processing_delay_ms": {
         "min": 150,
         "max": 600
@@ -50,14 +50,14 @@
         "deductible_percentage": 0.15
       },
       "denial_settings": {
-        "denial_rate": 0.12,
-        "hard_denial_rate": 0.80,
-        "preferred_categories": ["DUPLICATE", "ELIGIBILITY", "CODING"]
+        "denial_rate": 0.35,
+        "hard_denial_rate": 0.90,
+        "preferred_categories": ["duplicate", "coding", "documentation"]
       }
     },
     {
       "payer_id": "CIGNA_001",
-      "name": "Cigna", 
+      "name": "Cigna (Lenient)", 
       "processing_delay_ms": {
         "min": 200,
         "max": 700
@@ -68,32 +68,14 @@
         "deductible_percentage": 0.05
       },
       "denial_settings": {
-        "denial_rate": 0.06,
-        "hard_denial_rate": 0.70,
-        "preferred_categories": ["DOCUMENTATION", "PROVIDER_ISSUES"]
-      }
-    },
-    {
-      "payer_id": "HUMANA_001",
-      "name": "Humana",
-      "processing_delay_ms": {
-        "min": 100,
-        "max": 400
-      },
-      "adjudication_rules": {
-        "payer_percentage": 0.78,
-        "copay_fixed_amount": 35.00,
-        "deductible_percentage": 0.12
-      },
-      "denial_settings": {
-        "denial_rate": 0.10,
-        "hard_denial_rate": 0.85,
-        "preferred_categories": ["TIMELY_FILING", "AUTHORIZATION"]
+        "denial_rate": 0.05,
+        "hard_denial_rate": 0.60,
+        "preferred_categories": ["provider_issues"]
       }
     },
     {
       "payer_id": "MEDICARE_001",
-      "name": "Medicare",
+      "name": "Medicare (Denial Demo)",
       "processing_delay_ms": {
         "min": 300,
         "max": 1000
@@ -104,13 +86,31 @@
         "deductible_percentage": 0.20
       },
       "denial_settings": {
+        "denial_rate": 0.30,
+        "hard_denial_rate": 0.95,
+        "preferred_categories": ["medical_necessity", "timely_filing", "authorization", "coding"]
+      }
+    },
+    {
+      "payer_id": "HUMANA_001",
+      "name": "Humana (Standard)",
+      "processing_delay_ms": {
+        "min": 150,
+        "max": 500
+      },
+      "adjudication_rules": {
+        "payer_percentage": 0.75,
+        "copay_fixed_amount": 30.00,
+        "deductible_percentage": 0.12
+      },
+      "denial_settings": {
         "denial_rate": 0.15,
-        "hard_denial_rate": 0.90,
-        "preferred_categories": ["MEDICAL_NECESSITY", "CODING", "DUPLICATE"]
+        "hard_denial_rate": 0.70,
+        "preferred_categories": ["eligibility", "coordination_benefits"]
       }
     }
   ],
   "ingestion": {
-    "rateLimit": 2.0
+    "rateLimit": 5.0
   }
 }

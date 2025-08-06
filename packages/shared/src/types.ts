@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { DenialSeverity, DenialCategory } from './denial-reasons';
 
 // Core claim schemas based on the specification
 export const ServiceLineSchema = z.object({
@@ -17,6 +18,24 @@ export const PayerClaimSchema = z.object({
   submission_date: z.string().datetime(),
 });
 
+// Denial information schema
+export const DenialInfoSchema = z.object({
+  denial_code: z.string(),
+  group_code: z.string(),
+  reason_code: z.string(),
+  category: z.nativeEnum(DenialCategory),
+  severity: z.nativeEnum(DenialSeverity),
+  description: z.string(),
+  explanation: z.string(),
+});
+
+// Claim status enum
+export enum ClaimStatus {
+  APPROVED = 'approved',
+  DENIED = 'denied', 
+  PARTIAL_DENIAL = 'partial_denial'
+}
+
 // Remittance advice schemas
 export const RemittanceLineSchema = z.object({
   service_line_id: z.string(),
@@ -26,6 +45,8 @@ export const RemittanceLineSchema = z.object({
   copay_amount: z.number(),
   deductible_amount: z.number(),
   not_allowed_amount: z.number(),
+  status: z.nativeEnum(ClaimStatus),
+  denial_info: DenialInfoSchema.optional(),
 });
 
 export const RemittanceAdviceSchema = z.object({
@@ -34,6 +55,9 @@ export const RemittanceAdviceSchema = z.object({
   payer_id: z.string(),
   remittance_lines: z.array(RemittanceLineSchema),
   processed_at: z.string().datetime(),
+  overall_status: z.nativeEnum(ClaimStatus),
+  total_denied_amount: z.number().optional(),
+  edi_835_response: z.string().optional(), // EDI-835 formatted response
 });
 
 // Internal message schemas for queue communication
@@ -61,6 +85,11 @@ export const PayerConfigSchema = z.object({
     copay_fixed_amount: z.number().min(0).optional(),
     deductible_percentage: z.number().min(0).max(1).optional(),
   }),
+  denial_settings: z.object({
+    denial_rate: z.number().min(0).max(1).default(0.05), // 5% default denial rate
+    hard_denial_rate: z.number().min(0).max(1).default(0.7), // 70% of denials are hard denials
+    preferred_categories: z.array(z.nativeEnum(DenialCategory)).optional(),
+  }).optional(),
 });
 
 export const SimulatorConfigSchema = z.object({
@@ -83,6 +112,7 @@ export const SimulatorConfigSchema = z.object({
 // Type exports
 export type ServiceLine = z.infer<typeof ServiceLineSchema>;
 export type PayerClaim = z.infer<typeof PayerClaimSchema>;
+export type DenialInfo = z.infer<typeof DenialInfoSchema>;
 export type RemittanceLine = z.infer<typeof RemittanceLineSchema>;
 export type RemittanceAdvice = z.infer<typeof RemittanceAdviceSchema>;
 export type ClaimMessage = z.infer<typeof ClaimMessageSchema>;

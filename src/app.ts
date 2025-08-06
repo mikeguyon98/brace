@@ -293,6 +293,15 @@ class BillingSimulator {
     logger.info(`⏳ Waiting for all ${this.totalClaimsToProcess} claims to be processed...`);
     logger.info('📊 Live claim state tracking every 5 seconds');
 
+    // Show initial pipeline status immediately
+    this.printClaimStateTracking();
+    
+    // Check if already complete (in case of very fast processing)
+    if (this.areAllClaimsProcessed()) {
+      logger.info(`🎉 ALL CLAIMS COMPLETED! Processed ${this.claimsProcessedByBilling}/${this.totalClaimsToProcess} claims (100%)`);
+      return;
+    }
+
     return new Promise((resolve) => {
       this.completionCheckInterval = setInterval(() => {
         this.printClaimStateTracking();
@@ -338,7 +347,7 @@ class BillingSimulator {
     
     console.log(`\n⚡ QUEUE STATUS: ${queueStats.totalPending} pending | ${queueStats.totalProcessing} processing | Outstanding: ${claimStats.outstanding}`);
     
-    // Show AR Aging Report
+    // Show AR Aging Report (pipeline stats already shown above)
     console.log('\n' + '─'.repeat(120));
     this.arAgingService.printFormattedReport();
     
@@ -358,11 +367,16 @@ class BillingSimulator {
     const claimCount = await this.countClaimsInFile(filePath);
     this.setTotalClaimsToProcess(claimCount);
     
-    await this.ingestionService.ingestFile(filePath);
+    // Start live tracking immediately (parallel with ingestion)
+    const trackingPromise = this.waitForAllClaimsToComplete();
+    
+    // Start ingestion (parallel with tracking)
+    const ingestionPromise = this.ingestionService.ingestFile(filePath);
+    
+    // Wait for both to complete
+    await Promise.all([ingestionPromise, trackingPromise]);
+    
     logger.info('File ingestion completed');
-
-    // Wait for ALL claims to be processed with live state tracking
-    await this.waitForAllClaimsToComplete();
     logger.info('🎉 All claims have been fully processed!');
     
     // Generate final comprehensive AR Aging report
@@ -380,8 +394,8 @@ class BillingSimulator {
     // Give the AR Aging service a moment to process the last remittances
     await new Promise(resolve => setTimeout(resolve, 1000));
     
-    // Generate the final report
-    this.arAgingService.printFormattedReport();
+    // Generate the final report with pipeline stats
+    this.arAgingService.printFormattedReport(this.pipelineStats);
     
     // Get billing statistics for final summary
     const billingStats = this.billingService.getStats();

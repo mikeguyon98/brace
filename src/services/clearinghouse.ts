@@ -120,18 +120,6 @@ export class ClearinghouseService {
     }
   }
 
-  // Remittance processing is now handled by the billing service
-  // This method is no longer needed since clearinghouse only does correlation tracking
-
-  private calculatePriority(claim: any): number {
-    // Simple priority calculation based on claim amount
-    const totalAmount = claim.service_lines.reduce((sum: number, line: any) => sum + line.billed_amount, 0);
-    
-    if (totalAmount > 10000) return 1; // High priority
-    if (totalAmount > 1000) return 2;  // Medium priority
-    return 3; // Low priority
-  }
-
   getStats() {
     return {
       claimsProcessed: this.claimsProcessed,

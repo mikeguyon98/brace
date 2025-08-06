@@ -115,7 +115,78 @@ export class StatisticsService {
         )
       `);
 
-      logger.info('Statistics database schema initialized');
+      // Create table for denial tracking
+      await client.query(`
+        CREATE TABLE IF NOT EXISTS claim_denials (
+          id SERIAL PRIMARY KEY,
+          correlation_id VARCHAR(255) NOT NULL,
+          claim_id VARCHAR(255) NOT NULL,
+          payer_id VARCHAR(255) NOT NULL,
+          denial_type VARCHAR(50) NOT NULL, -- 'full_claim', 'service_line'
+          service_line_id VARCHAR(255), -- NULL for full claim denials
+          denial_code VARCHAR(50) NOT NULL,
+          group_code VARCHAR(10) NOT NULL,
+          reason_code VARCHAR(10) NOT NULL,
+          category VARCHAR(50) NOT NULL,
+          severity VARCHAR(50) NOT NULL,
+          description TEXT NOT NULL,
+          explanation TEXT NOT NULL,
+          billed_amount DECIMAL(10,2) NOT NULL,
+          denied_amount DECIMAL(10,2) NOT NULL,
+          denied_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+          created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+        )
+      `);
+
+      // Create table for EDI-835 responses
+      await client.query(`
+        CREATE TABLE IF NOT EXISTS edi_835_responses (
+          id SERIAL PRIMARY KEY,
+          correlation_id VARCHAR(255) NOT NULL,
+          claim_id VARCHAR(255) NOT NULL,
+          payer_id VARCHAR(255) NOT NULL,
+          transaction_control_number VARCHAR(50),
+          payment_amount DECIMAL(10,2) NOT NULL,
+          claim_status VARCHAR(20) NOT NULL,
+          edi_content TEXT NOT NULL,
+          generated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+          created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+        )
+      `);
+
+      // Create indexes for denial tracking
+      await client.query(`
+        CREATE INDEX IF NOT EXISTS idx_claim_denials_correlation_id 
+        ON claim_denials(correlation_id)
+      `);
+
+      await client.query(`
+        CREATE INDEX IF NOT EXISTS idx_claim_denials_payer_id 
+        ON claim_denials(payer_id)
+      `);
+
+      await client.query(`
+        CREATE INDEX IF NOT EXISTS idx_claim_denials_denied_at 
+        ON claim_denials(denied_at)
+      `);
+
+      await client.query(`
+        CREATE INDEX IF NOT EXISTS idx_claim_denials_category 
+        ON claim_denials(category)
+      `);
+
+      // Create indexes for EDI responses
+      await client.query(`
+        CREATE INDEX IF NOT EXISTS idx_edi_835_responses_correlation_id 
+        ON edi_835_responses(correlation_id)
+      `);
+
+      await client.query(`
+        CREATE INDEX IF NOT EXISTS idx_edi_835_responses_payer_id 
+        ON edi_835_responses(payer_id)
+      `);
+
+      logger.info('Statistics database schema initialized with denial tracking');
     } finally {
       client.release();
     }
@@ -362,6 +433,146 @@ export class StatisticsService {
         min_processing_time_ms: parseInt(result.rows[0].min_processing_time_ms || '0'),
         max_processing_time_ms: parseInt(result.rows[0].max_processing_time_ms || '0'),
       };
+    } finally {
+      client.release();
+    }
+  }
+
+  /**
+   * Record claim denial information
+   */
+  async recordClaimDenial(
+    correlationId: string,
+    claimId: string,
+    payerId: string,
+    denialType: 'full_claim' | 'service_line',
+    serviceLineId: string | null,
+    denialInfo: any,
+    billedAmount: number,
+    deniedAmount: number
+  ): Promise<void> {
+    const client = await this.pool.connect();
+    try {
+      await client.query(
+        `INSERT INTO claim_denials 
+         (correlation_id, claim_id, payer_id, denial_type, service_line_id, 
+          denial_code, group_code, reason_code, category, severity, 
+          description, explanation, billed_amount, denied_amount)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)`,
+        [
+          correlationId,
+          claimId,
+          payerId,
+          denialType,
+          serviceLineId,
+          denialInfo.denial_code,
+          denialInfo.group_code,
+          denialInfo.reason_code,
+          denialInfo.category,
+          denialInfo.severity,
+          denialInfo.description,
+          denialInfo.explanation,
+          billedAmount,
+          deniedAmount,
+        ]
+      );
+
+      logger.debug(`Recorded ${denialType} denial for claim ${claimId}: ${denialInfo.description}`);
+    } finally {
+      client.release();
+    }
+  }
+
+  /**
+   * Record EDI-835 response
+   */
+  async recordEDI835Response(
+    correlationId: string,
+    claimId: string,
+    payerId: string,
+    transactionControlNumber: string | null,
+    paymentAmount: number,
+    claimStatus: string,
+    ediContent: string
+  ): Promise<void> {
+    const client = await this.pool.connect();
+    try {
+      await client.query(
+        `INSERT INTO edi_835_responses 
+         (correlation_id, claim_id, payer_id, transaction_control_number, 
+          payment_amount, claim_status, edi_content)
+         VALUES ($1, $2, $3, $4, $5, $6, $7)
+         ON CONFLICT (correlation_id) DO UPDATE SET
+         transaction_control_number = EXCLUDED.transaction_control_number,
+         payment_amount = EXCLUDED.payment_amount,
+         claim_status = EXCLUDED.claim_status,
+         edi_content = EXCLUDED.edi_content,
+         generated_at = NOW()`,
+        [
+          correlationId,
+          claimId,
+          payerId,
+          transactionControlNumber,
+          paymentAmount,
+          claimStatus,
+          ediContent,
+        ]
+      );
+
+      logger.debug(`Recorded EDI-835 response for claim ${claimId}, payment: $${paymentAmount}`);
+    } finally {
+      client.release();
+    }
+  }
+
+  /**
+   * Get denial statistics by payer
+   */
+  async getDenialStatistics(payerId?: string): Promise<any[]> {
+    const client = await this.pool.connect();
+    try {
+      const whereClause = payerId ? 'WHERE payer_id = $1' : '';
+      const params = payerId ? [payerId] : [];
+      
+      const result = await client.query(`
+        SELECT 
+          payer_id,
+          category,
+          severity,
+          COUNT(*) as denial_count,
+          SUM(denied_amount) as total_denied_amount,
+          AVG(denied_amount) as avg_denied_amount
+        FROM claim_denials 
+        ${whereClause}
+        GROUP BY payer_id, category, severity
+        ORDER BY payer_id, total_denied_amount DESC
+      `, params);
+
+      return result.rows;
+    } finally {
+      client.release();
+    }
+  }
+
+  /**
+   * Get denial trend over time
+   */
+  async getDenialTrend(days: number = 7): Promise<any[]> {
+    const client = await this.pool.connect();
+    try {
+      const result = await client.query(`
+        SELECT 
+          DATE(denied_at) as denial_date,
+          payer_id,
+          COUNT(*) as denial_count,
+          SUM(denied_amount) as total_denied_amount
+        FROM claim_denials 
+        WHERE denied_at >= NOW() - INTERVAL '${days} days'
+        GROUP BY DATE(denied_at), payer_id
+        ORDER BY denial_date DESC, payer_id
+      `);
+
+      return result.rows;
     } finally {
       client.release();
     }

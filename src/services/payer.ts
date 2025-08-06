@@ -1,6 +1,22 @@
-import { ClaimMessage, RemittanceMessage, PayerConfig, RemittanceAdvice, RemittanceLine } from '../shared/types';
+import { 
+  ClaimMessage, 
+  RemittanceMessage, 
+  PayerConfig, 
+  RemittanceAdvice, 
+  RemittanceLine,
+  ClaimStatus,
+  DenialInfo,
+  PayerClaim
+} from '../shared/types';
 import { logger } from '../shared/logger';
 import { InMemoryQueue } from '../queue/in-memory-queue';
+import { 
+  selectRandomDenialReason, 
+  selectDenialReasonByCategory, 
+  DenialSeverity,
+  DenialCategory 
+} from '../shared/denial-reasons';
+import { generateEDI835Response } from '../shared/edi-835-generator';
 
 export class PayerAdjudicator {
   private config: PayerConfig;
@@ -11,9 +27,17 @@ export class PayerAdjudicator {
 
   async adjudicateClaim(
     correlationId: string,
-    claim: any
+    claim: PayerClaim
   ): Promise<RemittanceAdvice> {
     logger.debug(`Adjudicating claim ${claim.claim_id} for payer ${this.config.payer_id}`);
+
+    // First, check if the entire claim should be denied
+    const shouldDenyClaim = this.shouldDenyClaim();
+    
+    if (shouldDenyClaim) {
+      logger.info(`🚫 Claim ${claim.claim_id} DENIED by ${this.config.name}`);
+      return this.createDeniedClaimRemittance(correlationId, claim);
+    }
 
     const remittanceLines: RemittanceLine[] = [];
 
@@ -22,15 +46,27 @@ export class PayerAdjudicator {
       remittanceLines.push(remittanceLine);
     }
 
+    // Calculate overall claim status
+    const overallStatus = this.calculateOverallStatus(remittanceLines);
+    const totalDeniedAmount = this.calculateTotalDeniedAmount(remittanceLines);
+
     const remittance: RemittanceAdvice = {
       correlation_id: correlationId,
       claim_id: claim.claim_id,
       payer_id: this.config.payer_id,
       remittance_lines: remittanceLines,
       processed_at: new Date().toISOString(),
+      overall_status: overallStatus,
+      total_denied_amount: totalDeniedAmount > 0 ? totalDeniedAmount : undefined,
     };
 
-    logger.debug(`Adjudicated claim ${claim.claim_id}: ${remittanceLines.length} lines processed`);
+    // Generate EDI-835 response
+    remittance.edi_835_response = generateEDI835Response(remittance, claim, {
+      payerName: this.config.name,
+      payerContactInfo: `Contact: 1-800-${this.config.payer_id.slice(-3)}-HELP`
+    });
+
+    logger.debug(`Adjudicated claim ${claim.claim_id}: ${remittanceLines.length} lines processed, status: ${overallStatus}`);
     return remittance;
   }
 
@@ -47,14 +83,44 @@ export class PayerAdjudicator {
         copay_amount: 0,
         deductible_amount: 0,
         not_allowed_amount: billedAmount < 0 ? Math.abs(billedAmount) : 0,
+        status: ClaimStatus.DENIED,
+      };
+    }
+
+    // Check if this service line should be denied
+    const shouldDenyLine = this.shouldDenyServiceLine();
+    
+    if (shouldDenyLine) {
+      const denialReason = selectRandomDenialReason();
+      logger.debug(`Service line ${serviceLine.service_line_id} denied: ${denialReason.description}`);
+      
+      return {
+        service_line_id: serviceLine.service_line_id,
+        billed_amount: billedAmount,
+        payer_paid_amount: 0,
+        coinsurance_amount: 0,
+        copay_amount: 0,
+        deductible_amount: 0,
+        not_allowed_amount: billedAmount,
+        status: ClaimStatus.DENIED,
+        denial_info: {
+          denial_code: denialReason.code,
+          group_code: denialReason.group_code,
+          reason_code: denialReason.reason_code,
+          category: denialReason.category,
+          severity: denialReason.severity,
+          description: denialReason.description,
+          explanation: denialReason.explanation,
+        },
       };
     }
 
     // Apply adjudication rules
     const rules = this.config.adjudication_rules;
     
-    // Calculate basic payer payment (percentage of billed amount)
-    let payerPaidAmount = billedAmount * rules.payer_percentage;
+    // Calculate basic payer payment (percentage of billed amount) with randomization
+    const randomFactor = 0.9 + Math.random() * 0.2; // ±10% variation
+    let payerPaidAmount = billedAmount * rules.payer_percentage * randomFactor;
     
     // Calculate fixed copay
     let copayAmount = rules.copay_fixed_amount || 0;
@@ -68,10 +134,6 @@ export class PayerAdjudicator {
     
     // Calculate coinsurance (remaining patient responsibility after deductible)
     let coinsuranceAmount = remainingAfterPayerAndCopay - deductibleAmount;
-    
-    // Add some randomization for simulation realism
-    const randomFactor = 0.9 + Math.random() * 0.2; // ±10% variation
-    payerPaidAmount *= randomFactor;
     
     // Ensure amounts don't go negative
     payerPaidAmount = Math.max(0, payerPaidAmount);
@@ -92,6 +154,7 @@ export class PayerAdjudicator {
       copay_amount: Math.round(copayAmount * 100) / 100,
       deductible_amount: Math.round(deductibleAmount * 100) / 100,
       not_allowed_amount: Math.round(notAllowedAmount * 100) / 100,
+      status: ClaimStatus.APPROVED,
     };
 
     return result;
@@ -106,6 +169,119 @@ export class PayerAdjudicator {
     return new Promise(resolve => {
       setTimeout(resolve, delay);
     });
+  }
+
+  /**
+   * Determine if an entire claim should be denied based on payer configuration
+   */
+  private shouldDenyClaim(): boolean {
+    const denialSettings = this.config.denial_settings;
+    if (!denialSettings) {
+      return false; // No denial settings, never deny
+    }
+    
+    return Math.random() < denialSettings.denial_rate;
+  }
+
+  /**
+   * Determine if a service line should be denied (independent of claim-level denial)
+   */
+  private shouldDenyServiceLine(): boolean {
+    const denialSettings = this.config.denial_settings;
+    if (!denialSettings) {
+      return false;
+    }
+    
+    // Use a lower rate for service-line denials (typically 1/3 of claim denial rate)
+    const serviceLineDenialRate = denialSettings.denial_rate * 0.33;
+    return Math.random() < serviceLineDenialRate;
+  }
+
+  /**
+   * Create a complete denial remittance for an entire claim
+   */
+  private createDeniedClaimRemittance(correlationId: string, claim: PayerClaim): RemittanceAdvice {
+    const denialReason = this.selectClaimDenialReason();
+    const totalBilledAmount = claim.service_lines.reduce((sum, line) => sum + line.billed_amount, 0);
+
+    const remittanceLines: RemittanceLine[] = claim.service_lines.map(serviceLine => ({
+      service_line_id: serviceLine.service_line_id,
+      billed_amount: serviceLine.billed_amount,
+      payer_paid_amount: 0,
+      coinsurance_amount: 0,
+      copay_amount: 0,
+      deductible_amount: 0,
+      not_allowed_amount: serviceLine.billed_amount,
+      status: ClaimStatus.DENIED,
+      denial_info: {
+        denial_code: denialReason.code,
+        group_code: denialReason.group_code,
+        reason_code: denialReason.reason_code,
+        category: denialReason.category,
+        severity: denialReason.severity,
+        description: denialReason.description,
+        explanation: denialReason.explanation,
+      },
+    }));
+
+    const remittance: RemittanceAdvice = {
+      correlation_id: correlationId,
+      claim_id: claim.claim_id,
+      payer_id: this.config.payer_id,
+      remittance_lines: remittanceLines,
+      processed_at: new Date().toISOString(),
+      overall_status: ClaimStatus.DENIED,
+      total_denied_amount: totalBilledAmount,
+    };
+
+    // Generate EDI-835 response for denial
+    remittance.edi_835_response = generateEDI835Response(remittance, claim, {
+      payerName: this.config.name,
+      payerContactInfo: `Contact: 1-800-${this.config.payer_id.slice(-3)}-HELP`
+    });
+
+    return remittance;
+  }
+
+  /**
+   * Select appropriate denial reason based on payer preferences
+   */
+  private selectClaimDenialReason() {
+    const denialSettings = this.config.denial_settings;
+    
+    if (denialSettings?.preferred_categories && denialSettings.preferred_categories.length > 0) {
+      // Select from preferred categories
+      const preferredCategory = denialSettings.preferred_categories[
+        Math.floor(Math.random() * denialSettings.preferred_categories.length)
+      ];
+      return selectDenialReasonByCategory(preferredCategory);
+    }
+    
+    return selectRandomDenialReason();
+  }
+
+  /**
+   * Calculate overall claim status based on remittance lines
+   */
+  private calculateOverallStatus(lines: RemittanceLine[]): ClaimStatus {
+    const deniedLines = lines.filter(line => line.status === ClaimStatus.DENIED);
+    
+    if (deniedLines.length === 0) {
+      return ClaimStatus.APPROVED;
+    } else if (deniedLines.length === lines.length) {
+      return ClaimStatus.DENIED;
+    } else {
+      return ClaimStatus.PARTIAL_DENIAL;
+    }
+  }
+
+  /**
+   * Calculate total denied amount across all remittance lines
+   */
+  private calculateTotalDeniedAmount(lines: RemittanceLine[]): number {
+    return lines
+      .filter(line => line.status === ClaimStatus.DENIED)
+      .reduce((sum, line) => sum + line.billed_amount, 0);
   }
 
   getConfig(): PayerConfig {
