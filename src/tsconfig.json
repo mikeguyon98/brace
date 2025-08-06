@@ -23,6 +23,7 @@
     "node_modules",
     "dist",
     "**/*.test.ts",
-    "**/__tests__/**"
+    "**/__tests__/**",
+    "**/test-utils.ts"
   ]
 }

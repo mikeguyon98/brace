@@ -355,9 +355,46 @@ app.get('/api/simulator/status', async (_req: any, res: any) => {
       }))
     };
     
+    // Calculate accurate progress based on completed claims
+    const totalClaims = parseInt(stats.processing.total_claims) || 0;
+    const completedClaims = parseInt(stats.processing.completed_claims) || 0;
+    const totalOutstanding = stats.aging.reduce((sum: number, aging: any) => 
+      sum + (parseInt(aging.outstanding_claims) || 0), 0);
+    
+    // Calculate progress: claims that have reached 'billed' status vs total claims
+    const actualProgress = totalClaims > 0 ? 
+      Math.min(100, ((totalClaims - totalOutstanding) / totalClaims) * 100) : 0;
+    
+    // Update processing status with accurate progress
+    const updatedProcessingStatus = {
+      ...processingStatus,
+      progress: Math.round(actualProgress),
+      processedClaims: totalClaims - totalOutstanding,
+      estimatedCompletion: actualProgress >= 100 ? new Date() : processingStatus.estimatedCompletion
+    };
+    
+    // Mark processing as complete with more robust criteria
+    // Wait for: all claims billed AND financial data stabilized AND processing pipeline empty
+    const hasProcessingActivity = Object.values(stats.queues).some((q: any) => q.processing > 0);
+    const financialDataComplete = (parseFloat(stats.processing.total_paid_amount) || 0) > 0 || 
+                                  (parseInt(stats.processing.denied_claims) || 0) > 0;
+    
+    if (actualProgress >= 100 && 
+        totalOutstanding === 0 && 
+        !hasProcessingActivity && 
+        financialDataComplete && 
+        processingStatus.isRunning) {
+      
+      // Add a small delay to ensure all database updates are complete
+      setTimeout(() => {
+        processingStatus.isRunning = false;
+        logger.info(`Processing completed: ${totalClaims} claims fully processed and billed`);
+      }, 2000); // 2 second delay
+    }
+    
     res.json({
       isRunning: processingStatus.isRunning,
-      status: processingStatus,
+      status: updatedProcessingStatus,
       stats: transformedStats
     });
   } catch (error) {
@@ -503,10 +540,8 @@ async function processFileAsync(filePath: string, originalName: string): Promise
     // Process the file
     await activeSimulator.ingestFile(filePath);
     
-    // Update final status
-    processingStatus.progress = 100;
-    processingStatus.processedClaims = claimCount;
-    processingStatus.estimatedCompletion = new Date();
+    // Update ingestion completion status
+    // Note: Progress will be calculated based on actual claim completion in the status endpoint
     
     logger.info(`Successfully processed ${claimCount} claims from ${originalName}`);
     

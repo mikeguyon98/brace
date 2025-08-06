@@ -272,12 +272,6 @@ export function Processing() {
                       </p>
                       <p className="text-xs text-gray-600">Amount Paid</p>
                     </div>
-                    <div className="text-center p-3 bg-gray-50 rounded">
-                      <p className="text-2xl font-bold text-gray-900">
-                        {stats.queues?.totalPending || '0'}
-                      </p>
-                      <p className="text-xs text-gray-600">Pending</p>
-                    </div>
                   </div>
                 </div>
               )}

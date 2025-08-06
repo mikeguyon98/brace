@@ -107,7 +107,9 @@ export class ARAgingService {
     record.isOutstanding = false;
     
     // Calculate age for debug logging  
-    const claimAgeMinutes = (remittedAt.getTime() - record.submittedAt.getTime()) / (1000 * 60);
+    const remittedTime = remittedAt instanceof Date ? remittedAt : new Date(remittedAt);
+    const submittedTime = record.submittedAt instanceof Date ? record.submittedAt : new Date(record.submittedAt);
+    const claimAgeMinutes = (remittedTime.getTime() - submittedTime.getTime()) / (1000 * 60);
     logger.debug(`AR: Completed claim ${record.claimId}, age: ${claimAgeMinutes.toFixed(2)} minutes`);
 
     // Perform data validations
@@ -177,8 +179,8 @@ export class ARAgingService {
     const thresholds = this.alertManager.getThresholds();
     
     ARReportGenerator.printFormattedReport(metrics, pipelineStats, {
-      highVolumeThreshold: thresholds.highVolumeThreshold,
-      payerDelayThreshold: thresholds.payerDelayThreshold
+      highVolumeThreshold: thresholds?.highVolumeThreshold || 100,
+      payerDelayThreshold: thresholds?.payerDelayThreshold || 2
     });
 
     // Check for payer performance alerts
@@ -217,11 +219,19 @@ export class ARAgingService {
     
     return Array.from(this.claims.values())
       .filter(record => {
-        const endTime = record.remittedAt || now;
-        const ageMinutes = (endTime.getTime() - record.submittedAt.getTime()) / (1000 * 60);
+        // Handle both Date objects and string dates safely
+        const endTime = record.remittedAt ? 
+          (record.remittedAt instanceof Date ? record.remittedAt : new Date(record.remittedAt)) : now;
+        const submittedTime = record.submittedAt instanceof Date ? 
+          record.submittedAt : new Date(record.submittedAt);
+        const ageMinutes = (endTime.getTime() - submittedTime.getTime()) / (1000 * 60);
         return ageMinutes >= thresholds.criticalAgeMinutes;
       })
-      .sort((a, b) => a.submittedAt.getTime() - b.submittedAt.getTime()); // Oldest first
+      .sort((a, b) => {
+        const aTime = a.submittedAt instanceof Date ? a.submittedAt : new Date(a.submittedAt);
+        const bTime = b.submittedAt instanceof Date ? b.submittedAt : new Date(b.submittedAt);
+        return aTime.getTime() - bTime.getTime();
+      }); // Oldest first
   }
 
   /**

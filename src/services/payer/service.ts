@@ -71,7 +71,7 @@ export class PayerService {
         0
       );
       const totalPatientResponsibility = remittance.remittance_lines.reduce(
-        (sum: number, line: any) => sum + (line.copay_amount || 0) + (line.deductible_amount || 0), 
+        (sum: number, line: any) => sum + (line.copay_amount || 0) + (line.deductible_amount || 0) + (line.coinsurance_amount || 0), 
         0
       );
       
