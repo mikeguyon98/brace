@@ -6,16 +6,7 @@
     "build": "pnpm run build:shared && pnpm run build:single-process",
     "build:shared": "tsc -p packages/shared/tsconfig.json",
     "build:single-process": "cd src && pnpm install && pnpm run build",
-    "build:services": "pnpm run build:ingestion && pnpm run build:clearinghouse && pnpm run build:payer && pnpm run build:billing && pnpm run build:monitor",
-    "build:ingestion": "tsc -p services/ingestion/tsconfig.json",
-    "build:clearinghouse": "tsc -p services/clearinghouse/tsconfig.json", 
-    "build:payer": "tsc -p services/payer/tsconfig.json",
-    "build:billing": "tsc -p services/billing/tsconfig.json",
-    "build:monitor": "tsc -p services/monitor/tsconfig.json",
-    "dev:ingestion": "tsx watch services/ingestion/src/index.ts",
-    "dev:clearinghouse": "tsx watch services/clearinghouse/src/index.ts",
-    "dev:payer": "tsx watch services/payer/src/index.ts",
-    "dev:billing": "tsx watch services/billing/src/index.ts",
+
     "start:single-process": "./scripts/start-single-process.sh",
     "single-process": "cd src && pnpm run dev",
     "docker:build": "docker-compose build",
@@ -26,8 +17,7 @@
     "format": "prettier --write ."
   },
   "workspaces": [
-    "packages/*",
-    "services/*"
+    "packages/*"
   ],
   "devDependencies": {
     "@types/node": "^20.0.0",
