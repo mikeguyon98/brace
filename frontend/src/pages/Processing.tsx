@@ -1,4 +1,4 @@
-import { useState, useRef } from 'react'
+import React, { useState, useRef } from 'react'
 import { useQuery, useMutation, useQueryClient } from 'react-query'
 import { useNavigate } from 'react-router-dom'
 import { Upload, Play, Square, FileText, Activity, BarChart3 } from 'lucide-react'
@@ -279,13 +279,24 @@ export function Processing() {
               {/* Actions */}
               {isProcessing && (
                 <div className="pt-4 border-t border-gray-200">
-                  <button
-                    onClick={handleViewResults}
-                    className="w-full btn btn-secondary"
-                  >
-                    <BarChart3 className="h-4 w-4 mr-2" />
-                    View Results
-                  </button>
+                  {processingStatus?.progress === 100 && isRunning ? (
+                    <button
+                      disabled
+                      className="w-full btn btn-secondary opacity-50 cursor-not-allowed"
+                      title="Processing is finalizing. Please wait for completion."
+                    >
+                      <Activity className="h-4 w-4 mr-2 animate-spin" />
+                      Finalizing...
+                    </button>
+                  ) : (
+                    <button
+                      onClick={handleViewResults}
+                      className="w-full btn btn-secondary"
+                    >
+                      <BarChart3 className="h-4 w-4 mr-2" />
+                      View Results
+                    </button>
+                  )}
                 </div>
               )}
             </div>
@@ -294,7 +305,7 @@ export function Processing() {
       </div>
 
       {/* Processing Complete */}
-      {processingStatus?.progress === 100 && (
+      {processingStatus?.progress === 100 && !isRunning && (
         <div className="card p-6 bg-success-50 border-success-200">
           <div className="flex items-center space-x-3">
             <div className="flex h-8 w-8 items-center justify-center rounded-full bg-success-100">
@@ -305,7 +316,7 @@ export function Processing() {
                 Processing Complete!
               </h3>
               <p className="text-success-700">
-                All claims have been processed successfully. View detailed results and analytics.
+                All claims have been processed and billed successfully. View detailed results and analytics.
               </p>
             </div>
             <button
@@ -314,6 +325,25 @@ export function Processing() {
             >
               View Results
             </button>
+          </div>
+        </div>
+      )}
+      
+      {/* Processing In Progress Warning */}
+      {processingStatus?.progress === 100 && isRunning && (
+        <div className="card p-6 bg-yellow-50 border-yellow-200">
+          <div className="flex items-center space-x-3">
+            <div className="flex h-8 w-8 items-center justify-center rounded-full bg-yellow-100">
+              <Activity className="h-5 w-5 text-yellow-600" />
+            </div>
+            <div className="flex-1">
+              <h3 className="text-lg font-medium text-yellow-900">
+                Finalizing Processing...
+              </h3>
+              <p className="text-yellow-700">
+                Claims processing is at 100% but the system is still finalizing all records. Please wait for completion before viewing final results.
+              </p>
+            </div>
           </div>
         </div>
       )}

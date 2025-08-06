@@ -355,32 +355,44 @@ app.get('/api/simulator/status', async (_req: any, res: any) => {
       }))
     };
     
-    // Calculate accurate progress based on completed claims
+    // Calculate accurate progress using PostgreSQL claim counts
     const totalClaims = parseInt(stats.processing.total_claims) || 0;
-    const completedClaims = parseInt(stats.processing.completed_claims) || 0;
+    const billedClaims = parseInt(stats.processing.completed_claims) || 0; // completed_claims = billed claims
+    const adjudicatedClaims = parseInt(stats.processing.adjudicated_claims) || 0;
+    const paidClaims = parseInt(stats.processing.paid_claims) || 0;
+    const deniedClaims = parseInt(stats.processing.denied_claims) || 0;
+    
+    // Calculate progress based on adjudicated claims (claims with payment decisions)
+    const claimsWithDecisions = paidClaims + deniedClaims; // Claims that have been adjudicated
+    const actualProgress = totalClaims > 0 ? 
+      Math.min(100, (claimsWithDecisions / totalClaims) * 100) : 0;
+    
+    // Get outstanding claims from aging stats (now properly defined)
     const totalOutstanding = stats.aging.reduce((sum: number, aging: any) => 
       sum + (parseInt(aging.outstanding_claims) || 0), 0);
-    
-    // Calculate progress: claims that have reached 'billed' status vs total claims
-    const actualProgress = totalClaims > 0 ? 
-      Math.min(100, ((totalClaims - totalOutstanding) / totalClaims) * 100) : 0;
     
     // Update processing status with accurate progress
     const updatedProcessingStatus = {
       ...processingStatus,
       progress: Math.round(actualProgress),
-      processedClaims: totalClaims - totalOutstanding,
+      processedClaims: claimsWithDecisions, // Claims that have payment decisions
       estimatedCompletion: actualProgress >= 100 ? new Date() : processingStatus.estimatedCompletion
     };
     
-    // Mark processing as complete with more robust criteria
-    // Wait for: all claims billed AND financial data stabilized AND processing pipeline empty
+    // Mark processing as complete with robust criteria
+    // Wait for: all claims adjudicated (have payment decisions) AND processing pipeline empty AND financial data exists
     const hasProcessingActivity = Object.values(stats.queues).some((q: any) => q.processing > 0);
     const financialDataComplete = (parseFloat(stats.processing.total_paid_amount) || 0) > 0 || 
                                   (parseInt(stats.processing.denied_claims) || 0) > 0;
     
-    if (actualProgress >= 100 && 
-        totalOutstanding === 0 && 
+    // Primary check: all claims have been adjudicated (payment decisions made)
+    const allClaimsAdjudicated = totalClaims > 0 && claimsWithDecisions >= totalClaims;
+    
+    // Secondary verification: no outstanding claims in aging stats (should now be 0 with fixed definition)
+    const noOutstandingClaims = totalOutstanding === 0;
+    
+    if (allClaimsAdjudicated && 
+        noOutstandingClaims && 
         !hasProcessingActivity && 
         financialDataComplete && 
         processingStatus.isRunning) {
@@ -388,7 +400,7 @@ app.get('/api/simulator/status', async (_req: any, res: any) => {
       // Add a small delay to ensure all database updates are complete
       setTimeout(() => {
         processingStatus.isRunning = false;
-        logger.info(`Processing completed: ${totalClaims} claims fully processed and billed`);
+        logger.info(`Processing completed: ${totalClaims} claims fully adjudicated (${paidClaims} paid, ${deniedClaims} denied, ${billedClaims} billed in PostgreSQL)`);
       }, 2000); // 2 second delay
     }
     

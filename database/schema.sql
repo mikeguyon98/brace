@@ -138,8 +138,8 @@ SELECT
     COUNT(*) FILTER (
         WHERE EXTRACT(EPOCH FROM (COALESCE(billed_at, NOW()) - created_at))/60 >= 3
     ) as bucket_3_plus_min,
-    -- Outstanding claims (not yet billed)
-    COUNT(*) FILTER (WHERE status != 'billed') as outstanding_claims,
+    -- Outstanding claims (not yet adjudicated with payment decision)
+    COUNT(*) FILTER (WHERE status NOT IN ('adjudicated', 'billed') OR adjudication_status IS NULL) as outstanding_claims,
     -- Average age for all claims
     ROUND(AVG(EXTRACT(EPOCH FROM (COALESCE(billed_at, NOW()) - created_at))/60), 2) as avg_age_minutes,
     -- Oldest claim age
@@ -147,7 +147,11 @@ SELECT
     -- Financial summary
     COALESCE(SUM(total_amount), 0) as total_billed_amount,
     COALESCE(SUM(paid_amount), 0) as total_paid_amount,
-    COALESCE(SUM(total_amount) - SUM(COALESCE(paid_amount, 0)), 0) as outstanding_amount
+    COALESCE(SUM(CASE 
+        WHEN status NOT IN ('adjudicated', 'billed') OR adjudication_status IS NULL 
+        THEN total_amount 
+        ELSE 0 
+    END), 0) as outstanding_amount
 FROM claims 
 WHERE payer_id IS NOT NULL
 GROUP BY payer_id, payer_name
