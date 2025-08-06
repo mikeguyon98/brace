@@ -108,13 +108,6 @@ export class BillingReportGenerator {
    * Print formatted report to console
    */
   printReport(): void {
-    const report = this.generateTextReport();
-    console.log('\n' + '='.repeat(80));
-    console.log('BILLING SIMULATOR STATISTICS REPORT');
-    console.log(`Generated at: ${new Date().toISOString()}`);
-    console.log('='.repeat(80));
-    console.log(report);
-    console.log('='.repeat(80) + '\n');
   }
 
   /**

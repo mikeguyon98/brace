@@ -234,32 +234,6 @@ export function Results() {
         </div>
       )}
 
-      {/* Processing Status */}
-      {processingStatus && (
-        <div className="card p-6">
-          <h2 className="text-lg font-semibold text-gray-900 mb-4">Processing Status</h2>
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-            <div className="text-center p-4 bg-gray-50 rounded">
-              <p className="text-2xl font-bold text-gray-900">
-                {processingStatus.totalClaims?.toLocaleString() || '0'}
-              </p>
-              <p className="text-sm text-gray-600">Total Claims</p>
-            </div>
-            <div className="text-center p-4 bg-gray-50 rounded">
-              <p className="text-2xl font-bold text-gray-900">
-                {processingStatus.processedClaims?.toLocaleString() || '0'}
-              </p>
-              <p className="text-sm text-gray-600">Processed</p>
-            </div>
-            <div className="text-center p-4 bg-gray-50 rounded">
-              <p className="text-2xl font-bold text-gray-900">
-                {processingStatus.progress?.toFixed(1) || '0'}%
-              </p>
-              <p className="text-sm text-gray-600">Complete</p>
-            </div>
-          </div>
-        </div>
-      )}
     </div>
   )
 } 

@@ -238,7 +238,18 @@ app.post('/api/simulator/start', async (req: any, res: any) => {
       return res.status(400).json({ error: 'Simulator is already running' });
     }
 
-    const config = req.body.config || DEFAULT_CONFIG;
+    // Use provided config or load default.json for realistic payer delays
+    let config = req.body.config;
+    if (!config) {
+      try {
+        const defaultConfigPath = path.join(process.cwd(), '..', 'config', 'default.json');
+        config = fs.readJsonSync(defaultConfigPath);
+        logger.info('Using default.json configuration for realistic payer delays');
+      } catch (error) {
+        logger.warn('Could not load default.json, falling back to hardcoded DEFAULT_CONFIG');
+        config = DEFAULT_CONFIG;
+      }
+    }
     
     // Validate configuration
     const validatedConfig = ConfigSchema.parse(config);
@@ -400,7 +411,14 @@ app.get('/api/simulator/status', async (_req: any, res: any) => {
       // Add a small delay to ensure all database updates are complete
       setTimeout(() => {
         processingStatus.isRunning = false;
-        logger.info(`Processing completed: ${totalClaims} claims fully adjudicated (${paidClaims} paid, ${deniedClaims} denied, ${billedClaims} billed in PostgreSQL)`);
+        // Reset processing status for next file but keep simulator running
+        processingStatus.currentFile = '';
+        processingStatus.progress = 0;
+        processingStatus.totalClaims = 0;
+        processingStatus.processedClaims = 0;
+        processingStatus.startTime = null;
+        processingStatus.estimatedCompletion = null;
+        logger.info(`Processing completed: ${totalClaims} claims fully adjudicated (${paidClaims} paid, ${deniedClaims} denied, ${billedClaims} billed in PostgreSQL). Ready for next file.`);
       }, 2000); // 2 second delay
     }
     
@@ -418,8 +436,13 @@ app.get('/api/simulator/status', async (_req: any, res: any) => {
 // Upload and process claims file
 app.post('/api/simulator/process', upload.single('claimsFile'), async (req: any, res: any) => {
   try {
-    if (!activeSimulator || !processingStatus.isRunning) {
+    if (!activeSimulator) {
       return res.status(400).json({ error: 'Simulator must be started before processing files' });
+    }
+    
+    // Allow upload if simulator is running, even if previous file processing is complete
+    if (processingStatus.isRunning && processingStatus.currentFile) {
+      return res.status(400).json({ error: 'Another file is currently being processed. Please wait for completion.' });
     }
 
     if (!req.file) {
@@ -429,9 +452,12 @@ app.post('/api/simulator/process', upload.single('claimsFile'), async (req: any,
     const filePath = req.file.path;
     const originalName = req.file.originalname;
     
-    // Update processing status
+    // Update processing status for new file
+    processingStatus.isRunning = true; // Restart processing for new file
     processingStatus.currentFile = originalName;
     processingStatus.startTime = new Date();
+    processingStatus.progress = 0;
+    processingStatus.processedClaims = 0;
     
     logger.info(`Processing file: ${originalName}`);
     

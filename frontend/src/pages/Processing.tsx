@@ -30,6 +30,7 @@ export function Processing() {
       onSuccess: () => {
         toast.success('File uploaded successfully! Processing started...')
         setIsProcessing(true)
+        setUploadedFile(null) // Clear uploaded file to allow selecting another
         queryClient.invalidateQueries('simulator-status')
       },
       onError: (error: any) => {
@@ -99,6 +100,16 @@ export function Processing() {
     ? (processingStatus.processedClaims / processingStatus.totalClaims) * 100 
     : 0
 
+  // Check if current processing cycle is complete
+  const isCurrentFileComplete = progress === 100 && !isRunning
+  
+  // Reset processing state when a file completes
+  React.useEffect(() => {
+    if (isCurrentFileComplete && isProcessing) {
+      setIsProcessing(false)
+    }
+  }, [isCurrentFileComplete, isProcessing])
+
   return (
     <div className="space-y-6">
       {/* Header */}
@@ -140,7 +151,14 @@ export function Processing() {
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
         {/* File Upload */}
         <div className="card p-6">
-          <h2 className="text-lg font-semibold text-gray-900 mb-4">Upload Claims File</h2>
+          <div className="flex items-center justify-between mb-4">
+            <h2 className="text-lg font-semibold text-gray-900">Upload Claims File</h2>
+            {isCurrentFileComplete && (
+              <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-green-100 text-green-800">
+                Ready for next file
+              </span>
+            )}
+          </div>
           
           {!isRunning ? (
             <div className="text-center py-8">
@@ -277,35 +295,33 @@ export function Processing() {
               )}
 
               {/* Actions */}
-              {isProcessing && (
-                <div className="pt-4 border-t border-gray-200">
-                  {processingStatus?.progress === 100 && isRunning ? (
-                    <button
-                      disabled
-                      className="w-full btn btn-secondary opacity-50 cursor-not-allowed"
-                      title="Processing is finalizing. Please wait for completion."
-                    >
-                      <Activity className="h-4 w-4 mr-2 animate-spin" />
-                      Finalizing...
-                    </button>
-                  ) : (
-                    <button
-                      onClick={handleViewResults}
-                      className="w-full btn btn-secondary"
-                    >
-                      <BarChart3 className="h-4 w-4 mr-2" />
-                      View Results
-                    </button>
-                  )}
-                </div>
-              )}
+              <div className="pt-4 border-t border-gray-200">
+                {processingStatus?.progress === 100 && isRunning ? (
+                  <button
+                    disabled
+                    className="w-full btn btn-secondary opacity-50 cursor-not-allowed"
+                    title="Processing is finalizing. Please wait for completion."
+                  >
+                    <Activity className="h-4 w-4 mr-2 animate-spin" />
+                    Finalizing...
+                  </button>
+                ) : (
+                  <button
+                    onClick={handleViewResults}
+                    className="w-full btn btn-secondary"
+                  >
+                    <BarChart3 className="h-4 w-4 mr-2" />
+                    View Results
+                  </button>
+                )}
+              </div>
             </div>
           )}
         </div>
       </div>
 
       {/* Processing Complete */}
-      {processingStatus?.progress === 100 && !isRunning && (
+      {isCurrentFileComplete && (
         <div className="card p-6 bg-success-50 border-success-200">
           <div className="flex items-center space-x-3">
             <div className="flex h-8 w-8 items-center justify-center rounded-full bg-success-100">
@@ -313,10 +329,10 @@ export function Processing() {
             </div>
             <div className="flex-1">
               <h3 className="text-lg font-medium text-success-900">
-                Processing Complete!
+                File Processing Complete!
               </h3>
               <p className="text-success-700">
-                All claims have been processed and billed successfully. View detailed results and analytics.
+                Current file has been processed successfully. You can upload and process another file or view results.
               </p>
             </div>
             <button

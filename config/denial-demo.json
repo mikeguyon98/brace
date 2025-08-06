@@ -21,7 +21,7 @@
   "payers": [
     {
       "payer_id": "anthem",
-      "name": "Anthem (Strict)",
+      "name": "Anthem",
       "processing_delay_ms": {
         "min": 100,
         "max": 500
@@ -43,7 +43,7 @@
     },
     {
       "payer_id": "united_health_group",
-      "name": "United Health Group (High Rejection)",
+      "name": "United Health Group",
       "processing_delay_ms": {
         "min": 150,
         "max": 600
@@ -65,7 +65,7 @@
     },
     {
       "payer_id": "medicare",
-      "name": "Medicare (Denial Demo)",
+      "name": "Medicare",
       "processing_delay_ms": {
         "min": 200,
         "max": 700

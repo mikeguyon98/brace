@@ -117,33 +117,33 @@ WHERE created_at >= NOW() - INTERVAL '1 hour'
 GROUP BY date_trunc('minute', created_at)
 ORDER BY minute DESC;
 
--- AR Aging stats view for industry standard aging buckets
+-- AR Aging stats view - measures PAYER PROCESSING TIME, not total lifecycle
 CREATE OR REPLACE VIEW aging_stats AS
 SELECT 
     payer_id,
     payer_name,
-    -- Calculate age in minutes from creation to now (or completion)
-    -- Using industry standard aging buckets: 0-1min, 1-2min, 2-3min, 3+min
+    -- Calculate payer processing time in minutes (from routed to adjudicated)
+    -- This shows how long each payer actually took to process claims
     COUNT(*) FILTER (
-        WHERE EXTRACT(EPOCH FROM (COALESCE(billed_at, NOW()) - created_at))/60 < 1
+        WHERE EXTRACT(EPOCH FROM (COALESCE(adjudicated_at, NOW()) - COALESCE(routed_at, created_at)))/60 < 1
     ) as bucket_0_1_min,
     COUNT(*) FILTER (
-        WHERE EXTRACT(EPOCH FROM (COALESCE(billed_at, NOW()) - created_at))/60 >= 1 
-        AND EXTRACT(EPOCH FROM (COALESCE(billed_at, NOW()) - created_at))/60 < 2
+        WHERE EXTRACT(EPOCH FROM (COALESCE(adjudicated_at, NOW()) - COALESCE(routed_at, created_at)))/60 >= 1 
+        AND EXTRACT(EPOCH FROM (COALESCE(adjudicated_at, NOW()) - COALESCE(routed_at, created_at)))/60 < 2
     ) as bucket_1_2_min,
     COUNT(*) FILTER (
-        WHERE EXTRACT(EPOCH FROM (COALESCE(billed_at, NOW()) - created_at))/60 >= 2 
-        AND EXTRACT(EPOCH FROM (COALESCE(billed_at, NOW()) - created_at))/60 < 3
+        WHERE EXTRACT(EPOCH FROM (COALESCE(adjudicated_at, NOW()) - COALESCE(routed_at, created_at)))/60 >= 2 
+        AND EXTRACT(EPOCH FROM (COALESCE(adjudicated_at, NOW()) - COALESCE(routed_at, created_at)))/60 < 3
     ) as bucket_2_3_min,
     COUNT(*) FILTER (
-        WHERE EXTRACT(EPOCH FROM (COALESCE(billed_at, NOW()) - created_at))/60 >= 3
+        WHERE EXTRACT(EPOCH FROM (COALESCE(adjudicated_at, NOW()) - COALESCE(routed_at, created_at)))/60 >= 3
     ) as bucket_3_plus_min,
     -- Outstanding claims (not yet adjudicated with payment decision)
     COUNT(*) FILTER (WHERE status NOT IN ('adjudicated', 'billed') OR adjudication_status IS NULL) as outstanding_claims,
-    -- Average age for all claims
-    ROUND(AVG(EXTRACT(EPOCH FROM (COALESCE(billed_at, NOW()) - created_at))/60), 2) as avg_age_minutes,
-    -- Oldest claim age
-    ROUND(MAX(EXTRACT(EPOCH FROM (COALESCE(billed_at, NOW()) - created_at))/60), 2) as oldest_claim_minutes,
+    -- Average payer processing time
+    ROUND(AVG(EXTRACT(EPOCH FROM (COALESCE(adjudicated_at, NOW()) - COALESCE(routed_at, created_at)))/60), 2) as avg_age_minutes,
+    -- Longest payer processing time
+    ROUND(MAX(EXTRACT(EPOCH FROM (COALESCE(adjudicated_at, NOW()) - COALESCE(routed_at, created_at)))/60), 2) as oldest_claim_minutes,
     -- Financial summary
     COALESCE(SUM(total_amount), 0) as total_billed_amount,
     COALESCE(SUM(paid_amount), 0) as total_paid_amount,
