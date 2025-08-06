@@ -144,6 +144,9 @@ export class PayerService {
   private async processClaim(claimMessage: ClaimMessage): Promise<void> {
     try {
       const startTime = Date.now();
+      
+      // Log when claim processing starts (immediate)
+      logger.info(`⚡ ${this.config.name} STARTED processing claim ${claimMessage.claim.claim_id}`);
 
       // Simulate processing delay
       await this.adjudicator.simulateProcessingDelay();
@@ -164,6 +167,9 @@ export class PayerService {
 
       this.claimsProcessed++;
       const processingTime = Date.now() - startTime;
+      
+      // Log when claim processing completes (after delay)
+      logger.info(`✅ ${this.config.name} COMPLETED claim ${claimMessage.claim.claim_id} after ${(processingTime/1000).toFixed(1)}s`);
 
       logger.debug(`Processed claim ${claimMessage.claim.claim_id} in ${processingTime}ms`);
 

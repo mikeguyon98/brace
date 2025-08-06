@@ -1,6 +1,7 @@
 import { ClaimMessage, RemittanceMessage } from '../shared/types';
 import { logger } from '../shared/logger';
 import { InMemoryQueue } from '../queue/in-memory-queue';
+import { ARAgingService } from './ar-aging';
 
 interface StoredClaim {
   correlation_id: string;
@@ -18,17 +19,20 @@ export class ClearinghouseService {
   private payerConfigs: Map<string, any>;
   private storedClaims: Map<string, StoredClaim> = new Map(); // In-memory storage instead of DB
   private claimsProcessed = 0;
+  private arAgingService?: ARAgingService;
 
   constructor(
     claimsQueue: InMemoryQueue<ClaimMessage>,
     remittanceQueue: InMemoryQueue<RemittanceMessage>,
     payerQueues: Map<string, InMemoryQueue<ClaimMessage>>,
-    payerConfigs: Map<string, any>
+    payerConfigs: Map<string, any>,
+    arAgingService?: ARAgingService
   ) {
     this.claimsQueue = claimsQueue;
     this.remittanceQueue = remittanceQueue;
     this.payerQueues = payerQueues;
     this.payerConfigs = payerConfigs;
+    this.arAgingService = arAgingService;
 
     this.setupProcessors();
   }
@@ -81,7 +85,24 @@ export class ClearinghouseService {
 
       await payerQueue.add(claimMessage);
 
+      // Record claim submission for AR Aging
+      if (this.arAgingService) {
+        const payerConfig = this.payerConfigs.get(targetPayerId);
+        const payerName = payerConfig?.name || targetPayerId;
+        this.arAgingService.recordClaimSubmission(claimMessage, payerName);
+      }
+
       this.claimsProcessed++;
+      
+      // Log claim routing to show parallel submission
+      const payerConfig = this.payerConfigs.get(targetPayerId);
+      const payerName = payerConfig?.name || targetPayerId;
+      const queueStats = payerQueue.getStats();
+      logger.info(`🚀 Routed claim ${claimMessage.claim.claim_id} to ${payerName} (Queue: ${queueStats.pending} pending, ${queueStats.processing} processing)`);
+
+      if (this.claimsProcessed % 10 === 0) {
+        logger.info(`📤 Clearinghouse routed ${this.claimsProcessed} claims to payers`);
+      }
       
       if (this.claimsProcessed % 100 === 0) {
         logger.info(`Clearinghouse processed ${this.claimsProcessed} claims`);

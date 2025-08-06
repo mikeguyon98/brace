@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 
 import { Command } from 'commander';
-import { readFileSync } from 'fs';
+import { readFileSync, promises as fs } from 'fs';
 import { join } from 'path';
 import { logger } from './shared/logger';
 import { SingleProcessConfig, ClaimMessage, RemittanceMessage } from './shared/types';
@@ -10,6 +10,7 @@ import { IngestionService } from './services/ingestion';
 import { ClearinghouseService } from './services/clearinghouse';
 import { PayerService } from './services/payer';
 import { BillingService } from './services/billing';
+import { ARAgingService } from './services/ar-aging';
 
 // Default configuration
 const DEFAULT_CONFIG: SingleProcessConfig = {
@@ -85,7 +86,7 @@ const DEFAULT_CONFIG: SingleProcessConfig = {
     },
   ],
   ingestion: {
-    rateLimit: 2.0, // claims per second
+    rateLimit: 20.0, // claims per second - increased default
   },
 };
 
@@ -95,7 +96,13 @@ class BillingSimulator {
   private clearinghouseService!: ClearinghouseService;
   private payerServices: Map<string, PayerService> = new Map();
   private billingService!: BillingService;
+  private arAgingService!: ARAgingService;
   private isRunning = false;
+  
+  // Claim tracking for completion detection
+  private totalClaimsToProcess = 0;
+  private claimsProcessedByBilling = 0;
+  private completionCheckInterval?: NodeJS.Timeout;
 
   constructor(config: SingleProcessConfig = DEFAULT_CONFIG) {
     this.config = config;
@@ -105,14 +112,14 @@ class BillingSimulator {
   private setupServices(): void {
     logger.info('Initializing billing simulator services...');
 
-    // Create queues
+    // Create queues with optimized concurrency
     const claimsQueue = queueManager.getQueue<ClaimMessage>('claims-ingestion', {
-      concurrency: 10,
+      concurrency: 25, // Increased from 10
       maxAttempts: 1,
     });
 
     const remittanceQueue = queueManager.getQueue<RemittanceMessage>('remittance-return', {
-      concurrency: 5,
+      concurrency: 20, // Increased from 5 for faster billing processing
       maxAttempts: 5,
       retryDelay: 500,
     });
@@ -122,8 +129,9 @@ class BillingSimulator {
     const payerConfigs = new Map();
 
     for (const payerConfig of this.config.payers) {
+      // Spawn tons of workers as suggested - much higher concurrency
       const payerQueue = queueManager.getQueue<ClaimMessage>(`payer-${payerConfig.payer_id.toLowerCase()}`, {
-        concurrency: 3,
+        concurrency: 25, // Dramatically increased from 3 to 25 workers per payer!
         maxAttempts: 3,
         retryDelay: 1000,
       });
@@ -135,11 +143,15 @@ class BillingSimulator {
     // Initialize services
     this.ingestionService = new IngestionService(claimsQueue, this.config.ingestion);
 
+    // Initialize AR Aging service first
+    this.arAgingService = new ARAgingService(5);
+
     this.clearinghouseService = new ClearinghouseService(
       claimsQueue,
       remittanceQueue,
       payerQueues,
-      payerConfigs
+      payerConfigs,
+      this.arAgingService
     );
 
     // Initialize payer services
@@ -149,10 +161,15 @@ class BillingSimulator {
       this.payerServices.set(payerConfig.payer_id, payerService);
     }
 
-    this.billingService = new BillingService(remittanceQueue, this.config.billing);
+    this.billingService = new BillingService(
+      remittanceQueue, 
+      this.config.billing, 
+      this.arAgingService,
+      () => this.incrementProcessedClaims()
+    );
 
     logger.info(`Initialized ${this.config.payers.length} payer services`);
-    logger.info('All services initialized successfully');
+    logger.info('All services initialized successfully including AR Aging');
   }
 
   async start(): Promise<void> {
@@ -181,10 +198,67 @@ class BillingSimulator {
     logger.info('Stopping billing simulator...');
     this.isRunning = false;
 
+    // Clear completion tracking
+    if (this.completionCheckInterval) {
+      clearInterval(this.completionCheckInterval);
+    }
+
     this.billingService.stop();
+    this.arAgingService.stop();
     queueManager.clear();
 
     logger.info('Billing simulator stopped');
+  }
+
+  /**
+   * Set the total number of claims to process
+   */
+  setTotalClaimsToProcess(count: number): void {
+    this.totalClaimsToProcess = count;
+    this.claimsProcessedByBilling = 0;
+    logger.info(`📊 Tracking ${count} claims for completion`);
+  }
+
+  /**
+   * Increment the count of claims processed by billing
+   */
+  incrementProcessedClaims(): void {
+    this.claimsProcessedByBilling++;
+    logger.info(`✅ Claim processed by billing: ${this.claimsProcessedByBilling}/${this.totalClaimsToProcess}`);
+  }
+
+  /**
+   * Check if all claims have been processed
+   */
+  areAllClaimsProcessed(): boolean {
+    return this.totalClaimsToProcess > 0 && this.claimsProcessedByBilling >= this.totalClaimsToProcess;
+  }
+
+  /**
+   * Wait for all claims to be processed, checking every 5 seconds
+   */
+  async waitForAllClaimsToComplete(): Promise<void> {
+    if (this.totalClaimsToProcess === 0) {
+      logger.info('No claims to track - exiting immediately');
+      return;
+    }
+
+    logger.info(`⏳ Waiting for all ${this.totalClaimsToProcess} claims to be processed...`);
+    logger.info('📈 AR Aging reports will show real-time progress every 5 seconds');
+
+    return new Promise((resolve) => {
+      this.completionCheckInterval = setInterval(() => {
+        const progress = (this.claimsProcessedByBilling / this.totalClaimsToProcess * 100).toFixed(1);
+        
+        if (this.areAllClaimsProcessed()) {
+          logger.info(`🎉 ALL CLAIMS COMPLETED! Processed ${this.claimsProcessedByBilling}/${this.totalClaimsToProcess} claims (100%)`);
+          clearInterval(this.completionCheckInterval!);
+          resolve();
+        } else {
+          logger.info(`🔄 Processing progress: ${this.claimsProcessedByBilling}/${this.totalClaimsToProcess} claims (${progress}%)`);
+        }
+      }, 5000); // Check every 5 seconds
+    });
   }
 
   async ingestFile(filePath: string): Promise<void> {
@@ -193,8 +267,97 @@ class BillingSimulator {
     }
 
     logger.info(`Starting file ingestion: ${filePath}`);
+    
+    // Count claims before ingestion
+    const claimCount = await this.countClaimsInFile(filePath);
+    this.setTotalClaimsToProcess(claimCount);
+    
     await this.ingestionService.ingestFile(filePath);
     logger.info('File ingestion completed');
+
+    // Wait for ALL claims to be processed
+    await this.waitForAllClaimsToComplete();
+    logger.info('🎉 All claims have been fully processed!');
+    
+    // Generate final comprehensive AR Aging report
+    await this.generateFinalARAgingReport();
+  }
+
+  /**
+   * Generate final comprehensive AR Aging report
+   */
+  private async generateFinalARAgingReport(): Promise<void> {
+    logger.info('\n' + '='.repeat(120));
+    logger.info('🏁 FINAL COMPREHENSIVE AR AGING REPORT');
+    logger.info('='.repeat(120));
+    
+    // Give the AR Aging service a moment to process the last remittances
+    await new Promise(resolve => setTimeout(resolve, 1000));
+    
+    // Generate the final report
+    this.arAgingService.printFormattedReport();
+    
+    // Get billing statistics for final summary
+    const billingStats = this.billingService.getStats();
+    const uptime = process.uptime();
+    const totalThroughput = billingStats.totalClaims / uptime;
+    
+    console.log('\n' + '='.repeat(120));
+    console.log('📊 FINAL PERFORMANCE SUMMARY');
+    console.log('='.repeat(120));
+    console.log(`🎯 TOTAL CLAIMS PROCESSED: ${billingStats.totalClaims.toLocaleString()}`);
+    console.log(`💰 TOTAL AMOUNT BILLED: $${billingStats.totalBilledAmount.toLocaleString('en-US', { minimumFractionDigits: 2 })}`);
+    console.log(`💳 TOTAL AMOUNT PAID: $${billingStats.totalPaidAmount.toLocaleString('en-US', { minimumFractionDigits: 2 })}`);
+    console.log(`👥 TOTAL PATIENT RESPONSIBILITY: $${billingStats.totalPatientResponsibility.toLocaleString('en-US', { minimumFractionDigits: 2 })}`);
+    console.log(`📈 OVERALL PAYMENT RATE: ${((billingStats.totalPaidAmount / billingStats.totalBilledAmount) * 100).toFixed(1)}%`);
+    console.log(`⚡ AVERAGE THROUGHPUT: ${totalThroughput.toFixed(2)} claims/second`);
+    console.log(`⏱️  TOTAL PROCESSING TIME: ${Math.floor(uptime / 60)}m ${Math.floor(uptime % 60)}s`);
+    
+    // Show payer performance breakdown
+    console.log('\n📋 PAYER PERFORMANCE BREAKDOWN:');
+    console.log('─'.repeat(120));
+    for (const [payerId, payerService] of this.payerServices) {
+      const stats = payerService.getStats();
+      const payerThroughput = stats.claimsProcessed / uptime;
+      const payerPayment = billingStats.payerBreakdown.get(payerId);
+      const paymentRate = payerPayment ? (payerPayment.paidAmount / payerPayment.billedAmount * 100) : 0;
+      
+      console.log(`  ${stats.payerName.padEnd(25)} | ${String(stats.claimsProcessed).padStart(6)} claims | ${payerThroughput.toFixed(2).padStart(8)} c/s | ${paymentRate.toFixed(1).padStart(6)}% paid`);
+    }
+    
+    // Get critical claims analysis
+    const criticalClaims = this.arAgingService.getCriticalClaims();
+    if (criticalClaims.length > 0) {
+      console.log('\n🚨 CLAIMS REQUIRING ATTENTION (3+ minutes):');
+      console.log('─'.repeat(120));
+      criticalClaims.slice(0, 10).forEach(claim => {
+        const ageMinutes = ((new Date()).getTime() - claim.submittedAt.getTime()) / (1000 * 60);
+        console.log(`  ${claim.claimId.padEnd(15)} | ${claim.payerId.padEnd(12)} | ${ageMinutes.toFixed(1).padStart(6)} min | $${claim.billedAmount.toFixed(2).padStart(10)}`);
+      });
+      if (criticalClaims.length > 10) {
+        console.log(`  ... and ${criticalClaims.length - 10} more critical claims`);
+      }
+    }
+    
+    console.log('\n' + '='.repeat(120));
+    console.log('✅ AR AGING ANALYSIS COMPLETE - ALL CLAIMS PROCESSED SUCCESSFULLY');
+    console.log('='.repeat(120) + '\n');
+  }
+
+  /**
+   * Count the number of claims in a JSONL file
+   */
+  private async countClaimsInFile(filePath: string): Promise<number> {
+    try {
+      const content = await fs.readFile(filePath, 'utf-8');
+      const lines = content.trim().split('\n').filter(line => line.trim());
+      const count = lines.length;
+      logger.info(`📋 Found ${count} claims in ${filePath}`);
+      return count;
+    } catch (error) {
+      logger.error(`Error counting claims in ${filePath}:`, error instanceof Error ? error.message : error);
+      return 0;
+    }
   }
 
   private logServiceStatus(): void {
@@ -203,15 +366,22 @@ class BillingSimulator {
     const clearinghouseStats = this.clearinghouseService.getStats();
     const billingStats = this.billingService.getStats();
 
-    logger.info('=== SERVICE STATUS ===');
-    logger.info(`Queues: ${queueStats.totalQueues}, Pending: ${queueStats.totalPending}, Processing: ${queueStats.totalProcessing}`);
-    logger.info(`Clearinghouse: ${clearinghouseStats.claimsProcessed} claims routed`);
-    logger.info(`Billing: ${billingStats.totalClaims} processed, $${billingStats.totalBilledAmount.toFixed(2)} billed`);
+    // Calculate overall throughput
+    const uptime = process.uptime();
+    const throughput = billingStats.totalClaims / uptime;
+
+    logger.info('=== HIGH-PERFORMANCE STATUS ===');
+    logger.info(`🚀 Throughput: ${throughput.toFixed(2)} claims/sec | Queues: ${queueStats.totalQueues} | Pending: ${queueStats.totalPending} | Processing: ${queueStats.totalProcessing}`);
+    logger.info(`📊 Clearinghouse: ${clearinghouseStats.claimsProcessed} routed | Billing: ${billingStats.totalClaims} processed | $${billingStats.totalBilledAmount.toFixed(2)} billed`);
     
+    // Show payer processing rates
+    let payerSummary = '';
     for (const [payerId, payerService] of this.payerServices) {
       const stats = payerService.getStats();
-      logger.info(`${stats.payerName}: ${stats.claimsProcessed} claims processed`);
+      const rate = stats.claimsProcessed / uptime;
+      payerSummary += `${stats.payerName.split(' ')[0]}: ${stats.claimsProcessed} (${rate.toFixed(1)}/s) | `;
     }
+    logger.info(`💰 Payers: ${payerSummary.slice(0, -3)}`);
   }
 
   printReport(): void {

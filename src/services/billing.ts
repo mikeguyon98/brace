@@ -1,6 +1,7 @@
 import { RemittanceMessage, ARAgingBucket, ARAgingReport, PatientCostShare } from '../shared/types';
 import { logger } from '../shared/logger';
 import { InMemoryQueue } from '../queue/in-memory-queue';
+import { ARAgingService } from './ar-aging';
 
 interface BillingStats {
   totalClaims: number;
@@ -26,15 +27,21 @@ export class BillingService {
   private config: BillingServiceConfig;
   private reportingInterval?: NodeJS.Timeout;
   private remittancesProcessed = 0;
+  private arAgingService?: ARAgingService;
+  private onClaimProcessed?: () => void;
 
   constructor(
     remittanceQueue: InMemoryQueue<RemittanceMessage>,
-    config: BillingServiceConfig = {}
+    config: BillingServiceConfig = {},
+    arAgingService?: ARAgingService,
+    onClaimProcessed?: () => void
   ) {
     this.remittanceQueue = remittanceQueue;
     this.config = {
       reportingIntervalSeconds: config.reportingIntervalSeconds || 30,
     };
+    this.arAgingService = arAgingService;
+    this.onClaimProcessed = onClaimProcessed;
 
     this.stats = {
       totalClaims: 0,
@@ -97,6 +104,16 @@ export class BillingService {
       this.updatePatientCostShare(patientId, remittance.remittance_lines);
 
       this.remittancesProcessed++;
+
+      // Record remittance completion for AR Aging
+      if (this.arAgingService) {
+        this.arAgingService.recordClaimCompletion(remittanceMessage);
+      }
+
+      // Notify main app that a claim has been processed
+      if (this.onClaimProcessed) {
+        this.onClaimProcessed();
+      }
 
       logger.info(`Billing processed remittance for claim ${remittance.claim_id} - $${claimBilledAmount.toFixed(2)} billed, $${claimPaidAmount.toFixed(2)} paid`);
 
@@ -205,6 +222,8 @@ export class BillingService {
       totalBilledAmount: this.stats.totalBilledAmount,
       totalPaidAmount: this.stats.totalPaidAmount,
       totalPatientResponsibility: this.stats.totalPatientResponsibility,
+      payerBreakdown: this.stats.payerBreakdown,
+      patientCostShares: this.stats.patientCostShares,
       payerCount: this.stats.payerBreakdown.size,
       patientCount: this.stats.patientCostShares.size,
     };

@@ -1,0 +1,88 @@
+{
+  "ingestion": {
+    "rateLimit": 15.0
+  },
+  "payers": [
+    {
+      "payer_id": "AETNA_001",
+      "name": "Aetna",
+      "processing_delay_ms": {
+        "min": 10000,
+        "max": 45000
+      },
+      "adjudication_rules": {
+        "payer_percentage": 0.80,
+        "copay_fixed_amount": 25.00,
+        "deductible_percentage": 0.10
+      }
+    },
+    {
+      "payer_id": "BCBS_001", 
+      "name": "Blue Cross Blue Shield",
+      "processing_delay_ms": {
+        "min": 60000,
+        "max": 120000
+      },
+      "adjudication_rules": {
+        "payer_percentage": 0.75,
+        "copay_fixed_amount": 30.00,
+        "deductible_percentage": 0.15
+      }
+    },
+    {
+      "payer_id": "CIGNA_001",
+      "name": "Cigna", 
+      "processing_delay_ms": {
+        "min": 90000,
+        "max": 200000
+      },
+      "adjudication_rules": {
+        "payer_percentage": 0.82,
+        "copay_fixed_amount": 20.00,
+        "deductible_percentage": 0.12
+      }
+    },
+    {
+      "payer_id": "HUMANA_001",
+      "name": "Humana",
+      "processing_delay_ms": {
+        "min": 30000,
+        "max": 90000
+      },
+      "adjudication_rules": {
+        "payer_percentage": 0.78,
+        "copay_fixed_amount": 35.00,
+        "deductible_percentage": 0.18
+      }
+    },
+    {
+      "payer_id": "MEDICARE_001",
+      "name": "Medicare",
+      "processing_delay_ms": {
+        "min": 150000,
+        "max": 300000
+      },
+      "adjudication_rules": {
+        "payer_percentage": 0.70,
+        "copay_fixed_amount": 15.00,
+        "deductible_percentage": 0.20
+      }
+    }
+  ],
+  "postgres": {
+    "clearinghouse": {
+      "host": "localhost",
+      "port": 5434,
+      "username": "postgres",
+      "password": "postgres", 
+      "database": "clearinghouse"
+    },
+    "billing": {
+      "host": "localhost",
+      "port": 5433,
+      "username": "postgres",
+      "password": "postgres",
+      "database": "billing"
+    }
+  }
+}
