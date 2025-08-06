@@ -77,7 +77,7 @@ export class MetricsCollector {
       multi.get(`${this.METRICS_PREFIX}start_time`);
       
       // Get payer-specific metrics
-      const payers = ['AETNA_001', 'BCBS_001', 'CIGNA_001', 'HUMANA_001', 'MEDICARE_001'];
+      const payers = ['anthem', 'united_health_group', 'medicare'];
       payers.forEach(payerId => {
         multi.get(`${this.METRICS_PREFIX}payer:${payerId}:processed`);
         multi.get(`${this.METRICS_PREFIX}errors:payer-${payerId.toLowerCase()}`);

@@ -70,12 +70,12 @@ export class FileProcessor {
       errors.push('Missing claim_id');
     }
 
-    if (!claim.patient_id) {
-      errors.push('Missing patient_id');
+    if (!claim.patient || !claim.patient.first_name || !claim.patient.last_name) {
+      errors.push('Missing patient information (first_name, last_name required)');
     }
 
-    if (!claim.payer_id) {
-      errors.push('Missing payer_id');
+    if (!claim.insurance || !claim.insurance.payer_id) {
+      errors.push('Missing insurance.payer_id');
     }
 
     if (!claim.service_lines || !Array.isArray(claim.service_lines)) {
@@ -90,18 +90,24 @@ export class FileProcessor {
         if (!line.service_line_id) {
           errors.push(`Service line ${index + 1}: Missing service_line_id`);
         }
-        if (typeof line.billed_amount !== 'number' || line.billed_amount < 0) {
-          errors.push(`Service line ${index + 1}: Invalid billed_amount`);
+        if (typeof line.unit_charge_amount !== 'number' || line.unit_charge_amount < 0) {
+          errors.push(`Service line ${index + 1}: Invalid unit_charge_amount`);
         }
-        if (line.billed_amount === 0) {
-          warnings.push(`Service line ${index + 1}: Zero billed amount`);
+        if (line.unit_charge_amount === 0) {
+          warnings.push(`Service line ${index + 1}: Zero unit charge amount`);
+        }
+        if (!line.details) {
+          errors.push(`Service line ${index + 1}: Missing details`);
+        }
+        if (!line.unit_charge_currency) {
+          errors.push(`Service line ${index + 1}: Missing unit_charge_currency`);
         }
       });
     }
 
     // Business logic warnings
     if (claim.service_lines) {
-      const totalBilled = claim.service_lines.reduce((sum, line) => sum + (line.billed_amount || 0), 0);
+      const totalBilled = claim.service_lines.reduce((sum, line) => sum + (line.unit_charge_amount * line.units), 0);
       if (totalBilled > 10000) {
         warnings.push(`High total billed amount: $${totalBilled.toFixed(2)}`);
       }

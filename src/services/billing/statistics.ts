@@ -39,7 +39,7 @@ export class BillingStatisticsManager {
 
     // Process each remittance line
     for (const line of remittance.remittance_lines) {
-      claimBilledAmount += line.billed_amount;
+      claimBilledAmount += line.billed_amount; // This is already calculated in remittance
       claimPaidAmount += line.payer_paid_amount;
       claimPatientResponsibility += line.coinsurance_amount + line.copay_amount + line.deductible_amount;
     }

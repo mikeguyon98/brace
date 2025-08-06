@@ -35,8 +35,8 @@ const DEFAULT_CONFIG: SingleProcessConfig = {
   },
   payers: [
     {
-      payer_id: 'AETNA_001',
-      name: 'Aetna',
+      payer_id: 'anthem',
+      name: 'Anthem',
       processing_delay_ms: { min: 100, max: 500 },
       adjudication_rules: {
         payer_percentage: 0.80,
@@ -45,8 +45,8 @@ const DEFAULT_CONFIG: SingleProcessConfig = {
       },
     },
     {
-      payer_id: 'BCBS_001',
-      name: 'Blue Cross Blue Shield',
+      payer_id: 'united_health_group',
+      name: 'United Health Group',
       processing_delay_ms: { min: 150, max: 600 },
       adjudication_rules: {
         payer_percentage: 0.75,
@@ -55,27 +55,7 @@ const DEFAULT_CONFIG: SingleProcessConfig = {
       },
     },
     {
-      payer_id: 'CIGNA_001',
-      name: 'Cigna',
-      processing_delay_ms: { min: 200, max: 700 },
-      adjudication_rules: {
-        payer_percentage: 0.85,
-        copay_fixed_amount: 20.00,
-        deductible_percentage: 0.05,
-      },
-    },
-    {
-      payer_id: 'HUMANA_001',
-      name: 'Humana',
-      processing_delay_ms: { min: 100, max: 400 },
-      adjudication_rules: {
-        payer_percentage: 0.78,
-        copay_fixed_amount: 35.00,
-        deductible_percentage: 0.12,
-      },
-    },
-    {
-      payer_id: 'MEDICARE_001',
+      payer_id: 'medicare',
       name: 'Medicare',
       processing_delay_ms: { min: 300, max: 1000 },
       adjudication_rules: {
@@ -138,9 +118,8 @@ class BillingSimulator {
     const payerConfigs = new Map();
 
     for (const payerConfig of this.config.payers) {
-      // Spawn tons of workers as suggested - much higher concurrency
       const payerQueue = queueManager.getQueue<ClaimMessage>(`payer-${payerConfig.payer_id.toLowerCase()}`, {
-        concurrency: 25, // Dramatically increased from 3 to 25 workers per payer!
+        concurrency: 25,
         maxAttempts: 3,
         retryDelay: 1000,
       });

@@ -1,21 +1,76 @@
 import { z } from 'zod';
 import { DenialSeverity, DenialCategory } from './denial-reasons';
 
-// Core claim schemas based on the specification
+// Updated schemas to match the new PayerClaim JSON schema specification
 export const ServiceLineSchema = z.object({
   service_line_id: z.string(),
   procedure_code: z.string(),
-  billed_amount: z.number().positive(),
-  units: z.number().int().positive().default(1),
+  modifiers: z.array(z.string()).optional(),
+  units: z.number().int().min(1),
+  details: z.string(),
+  unit_charge_currency: z.string(),
+  unit_charge_amount: z.number().min(0),
+  do_not_bill: z.boolean().optional(),
+});
+
+export const InsuranceSchema = z.object({
+  payer_id: z.enum(["medicare", "united_health_group", "anthem"]),
+  patient_member_id: z.string(),
+});
+
+export const PatientAddressSchema = z.object({
+  street: z.string().optional(),
+  city: z.string().optional(),
+  state: z.string().optional(),
+  zip: z.string().optional(),
+  country: z.string().optional(),
+});
+
+export const PatientSchema = z.object({
+  first_name: z.string(),
+  last_name: z.string(),
+  email: z.string().optional(),
+  gender: z.string().regex(/^(m|f)$/),
+  dob: z.string().regex(/^\d{4}-\d{2}-\d{2}$/), // date format YYYY-MM-DD
+  address: PatientAddressSchema.optional(),
+});
+
+export const OrganizationContactSchema = z.object({
+  first_name: z.string().optional(),
+  last_name: z.string().optional(),
+  phone_number: z.string().optional(),
+});
+
+export const OrganizationAddressSchema = z.object({
+  street: z.string().optional(),
+  city: z.string().optional(),
+  state: z.string().optional(),
+  zip: z.string().optional(),
+  country: z.string().optional(),
+});
+
+export const OrganizationSchema = z.object({
+  name: z.string(),
+  billing_npi: z.string().optional(),
+  ein: z.string().optional(),
+  contact: OrganizationContactSchema.optional(),
+  address: OrganizationAddressSchema.optional(),
+});
+
+export const RenderingProviderSchema = z.object({
+  first_name: z.string(),
+  last_name: z.string(),
+  npi: z.string().regex(/^\d{10}$/), // exactly 10 digits
 });
 
 export const PayerClaimSchema = z.object({
   claim_id: z.string(),
-  patient_id: z.string(),
-  payer_id: z.string(),
-  provider_id: z.string(),
+  place_of_service_code: z.number().int(),
+  insurance: InsuranceSchema,
+  patient: PatientSchema,
+  organization: OrganizationSchema,
+  rendering_provider: RenderingProviderSchema,
   service_lines: z.array(ServiceLineSchema).min(1),
-  submission_date: z.string().datetime(),
 });
 
 // Denial information schema
@@ -112,6 +167,13 @@ export const SimulatorConfigSchema = z.object({
 // Type exports
 export type ServiceLine = z.infer<typeof ServiceLineSchema>;
 export type PayerClaim = z.infer<typeof PayerClaimSchema>;
+export type Insurance = z.infer<typeof InsuranceSchema>;
+export type Patient = z.infer<typeof PatientSchema>;
+export type PatientAddress = z.infer<typeof PatientAddressSchema>;
+export type Organization = z.infer<typeof OrganizationSchema>;
+export type OrganizationContact = z.infer<typeof OrganizationContactSchema>;
+export type OrganizationAddress = z.infer<typeof OrganizationAddressSchema>;
+export type RenderingProvider = z.infer<typeof RenderingProviderSchema>;
 export type DenialInfo = z.infer<typeof DenialInfoSchema>;
 export type RemittanceLine = z.infer<typeof RemittanceLineSchema>;
 export type RemittanceAdvice = z.infer<typeof RemittanceAdviceSchema>;

@@ -51,7 +51,7 @@ export function generateEDI835Response(
   
   // CLP - Claim Payment Information
   const claimStatus = getClaimStatusCode(remittance.overall_status);
-  const totalCharges = claim.service_lines.reduce((sum, line) => sum + line.billed_amount, 0);
+  const totalCharges = claim.service_lines.reduce((sum, line) => sum + (line.unit_charge_amount * line.units), 0);
   const totalPayments = remittance.remittance_lines.reduce((sum, line) => sum + line.payer_paid_amount, 0);
   const patientResponsibility = remittance.remittance_lines.reduce((sum, line) => 
     sum + line.copay_amount + line.coinsurance_amount + line.deductible_amount, 0);
@@ -63,17 +63,20 @@ export function generateEDI835Response(
   segments.push(...adjustmentSegments);
   
   // NM1 - Patient Information
-  segments.push(`NM1*QC*1*${claim.patient_id}*****MI*${generatePatientID()}~`);
+  segments.push(`NM1*QC*1*${claim.patient.first_name}*${claim.patient.last_name}*****MI*${claim.insurance.patient_member_id}~`);
   
   // Service Line Information
   remittance.remittance_lines.forEach((line, index) => {
     const serviceLine = claim.service_lines.find(sl => sl.service_line_id === line.service_line_id);
     if (serviceLine) {
       // SVC - Service Payment Information
-      segments.push(`SVC*HC:${serviceLine.procedure_code}*${line.billed_amount.toFixed(2)}*${line.payer_paid_amount.toFixed(2)}*${serviceLine.procedure_code}*${serviceLine.units}~`);
+      const serviceLineBilledAmount = serviceLine.unit_charge_amount * serviceLine.units;
+    segments.push(`SVC*HC:${serviceLine.procedure_code}*${serviceLineBilledAmount.toFixed(2)}*${line.payer_paid_amount.toFixed(2)}*${serviceLine.procedure_code}*${serviceLine.units}~`);
       
       // DTM - Service Date
-      segments.push(`DTM*472*${claim.submission_date.slice(0, 10).replace(/-/g, '')}~`);
+      // Use current date since submission_date is no longer in the schema
+  const currentDate = new Date().toISOString().slice(0, 10).replace(/-/g, '');
+  segments.push(`DTM*472*${currentDate}~`);
       
       // CAS - Service Line Adjustment (if needed)
       if (line.status === ClaimStatus.DENIED || line.denial_info) {
@@ -144,7 +147,7 @@ function generateServiceLineCAS(line: RemittanceLine): string[] {
   const segments: string[] = [];
   
   if (line.denial_info) {
-    const deniedAmount = line.billed_amount - line.payer_paid_amount;
+    const deniedAmount = line.billed_amount - line.payer_paid_amount; // line.billed_amount is already calculated in remittance
     if (deniedAmount > 0) {
       segments.push(`CAS*${line.denial_info.group_code}*${line.denial_info.reason_code}*${deniedAmount.toFixed(2)}~`);
     }

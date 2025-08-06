@@ -24,7 +24,7 @@ export class ClaimRouter {
    * Route a claim to the appropriate payer queue
    */
   async routeClaim(claimMessage: ClaimMessage): Promise<ClaimRoutingResult> {
-    const payerId = claimMessage.claim.payer_id;
+    const payerId = claimMessage.claim.insurance.payer_id;
     const routingInfo = this.determinePayer(payerId);
 
     if (!routingInfo.payerQueue) {

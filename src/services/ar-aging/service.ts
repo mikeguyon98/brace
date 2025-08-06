@@ -42,14 +42,14 @@ export class ARAgingService {
   recordClaimSubmission(claimMessage: ClaimMessage, payerName: string): void {
     const submittedAt = new Date();
     const billedAmount = claimMessage.claim.service_lines.reduce(
-      (sum, line) => sum + line.billed_amount, 0
+      (sum, line) => sum + (line.unit_charge_amount * line.units), 0
     );
 
     const record: ARClaimRecord = {
       correlationId: claimMessage.correlation_id,
       claimId: claimMessage.claim.claim_id,
-      payerId: claimMessage.claim.payer_id,
-      patientId: claimMessage.claim.patient_id,
+      payerId: claimMessage.claim.insurance.payer_id,
+      patientId: `${claimMessage.claim.patient.first_name}_${claimMessage.claim.patient.last_name}`,
       submittedAt,
       billedAmount,
       isOutstanding: true,
@@ -97,7 +97,7 @@ export class ARAgingService {
     const notAllowedAmount = remittance.remittance_lines.reduce((sum, line) => sum + line.not_allowed_amount, 0);
     
     // Calculate adjudicated billed amount for validation
-    const adjudicatedBilledAmount = remittance.remittance_lines.reduce((sum, line) => sum + line.billed_amount, 0);
+    const adjudicatedBilledAmount = remittance.remittance_lines.reduce((sum, line) => sum + line.billed_amount, 0); // Already calculated in remittance
 
     // Update record with completion data
     record.remittedAt = remittedAt;
@@ -288,11 +288,9 @@ export class ARAgingService {
    */
   private getPayerName(payerId: string): string {
     const payerNames: Record<string, string> = {
-      'AETNA_001': 'Aetna',
-      'BCBS_001': 'Blue Cross Blue Shield',
-      'CIGNA_001': 'Cigna',
-      'HUMANA_001': 'Humana',
-      'MEDICARE_001': 'Medicare',
+      'anthem': 'Anthem',
+      'united_health_group': 'United Health Group',
+      'medicare': 'Medicare',
     };
     return payerNames[payerId] || payerId;
   }

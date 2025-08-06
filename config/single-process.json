@@ -20,11 +20,11 @@
   },
   "payers": [
     {
-      "payer_id": "AETNA_001",
-      "name": "Aetna",
+      "payer_id": "anthem",
+      "name": "Anthem",
       "processing_delay_ms": {
-        "min": 100,
-        "max": 500
+        "min": 2000,
+        "max": 5000
       },
       "adjudication_rules": {
         "payer_percentage": 0.80,
@@ -38,11 +38,11 @@
       }
     },
     {
-      "payer_id": "BCBS_001", 
-      "name": "Blue Cross Blue Shield",
+      "payer_id": "united_health_group", 
+      "name": "United Health Group",
       "processing_delay_ms": {
-        "min": 150,
-        "max": 600
+        "min": 3000,
+        "max": 8000
       },
       "adjudication_rules": {
         "payer_percentage": 0.75,
@@ -56,43 +56,7 @@
       }
     },
     {
-      "payer_id": "CIGNA_001",
-      "name": "Cigna", 
-      "processing_delay_ms": {
-        "min": 200,
-        "max": 700
-      },
-      "adjudication_rules": {
-        "payer_percentage": 0.85,
-        "copay_fixed_amount": 20.00,
-        "deductible_percentage": 0.05
-      },
-      "denial_settings": {
-        "denial_rate": 0.06,
-        "hard_denial_rate": 0.70,
-        "preferred_categories": ["DOCUMENTATION", "PROVIDER_ISSUES"]
-      }
-    },
-    {
-      "payer_id": "HUMANA_001",
-      "name": "Humana",
-      "processing_delay_ms": {
-        "min": 100,
-        "max": 400
-      },
-      "adjudication_rules": {
-        "payer_percentage": 0.78,
-        "copay_fixed_amount": 35.00,
-        "deductible_percentage": 0.12
-      },
-      "denial_settings": {
-        "denial_rate": 0.10,
-        "hard_denial_rate": 0.85,
-        "preferred_categories": ["TIMELY_FILING", "AUTHORIZATION"]
-      }
-    },
-    {
-      "payer_id": "MEDICARE_001",
+      "payer_id": "medicare",
       "name": "Medicare",
       "processing_delay_ms": {
         "min": 300,

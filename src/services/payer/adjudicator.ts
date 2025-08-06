@@ -81,7 +81,7 @@ export class PayerAdjudicator {
    */
   private adjudicateServiceLine(input: ServiceLineAdjudicationInput): RemittanceLine {
     const { serviceLine, adjudicationRules } = input;
-    const billedAmount = serviceLine.billed_amount;
+    const billedAmount = serviceLine.unit_charge_amount * serviceLine.units;
     
     // Handle zero or negative amounts
     if (billedAmount <= 0) {
@@ -232,16 +232,16 @@ export class PayerAdjudicator {
    */
   private createDeniedClaimRemittance(correlationId: string, claim: PayerClaim): RemittanceAdvice {
     const denialReason = this.selectClaimDenialReason();
-    const totalBilledAmount = claim.service_lines.reduce((sum, line) => sum + line.billed_amount, 0);
+    const totalBilledAmount = claim.service_lines.reduce((sum, line) => sum + (line.unit_charge_amount * line.units), 0);
 
     const remittanceLines: RemittanceLine[] = claim.service_lines.map(serviceLine => ({
       service_line_id: serviceLine.service_line_id,
-      billed_amount: serviceLine.billed_amount,
+              billed_amount: serviceLine.unit_charge_amount * serviceLine.units,
       payer_paid_amount: 0,
       coinsurance_amount: 0,
       copay_amount: 0,
       deductible_amount: 0,
-      not_allowed_amount: serviceLine.billed_amount,
+              not_allowed_amount: serviceLine.unit_charge_amount * serviceLine.units,
       status: ClaimStatus.DENIED,
       denial_info: {
         denial_code: denialReason.code,
