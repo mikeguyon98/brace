@@ -12,7 +12,7 @@
     "database": {
       "host": "localhost",
       "port": 5433,
-      "database": "billing", 
+      "database": "billing",
       "username": "postgres",
       "password": "postgres"
     },
@@ -20,72 +20,46 @@
   },
   "payers": [
     {
-      "payer_id": "AETNA_001",
-      "name": "Aetna",
+      "payer_id": "anthem",
+      "name": "Anthem (Strict)",
       "processing_delay_ms": {
         "min": 50,
         "max": 200
       },
       "adjudication_rules": {
-        "payer_percentage": 0.80,
-        "copay_fixed_amount": 25.00,
-        "deductible_percentage": 0.10
+        "payer_percentage": 0.8,
+        "copay_fixed_amount": 25,
+        "deductible_percentage": 0.1
       }
     },
     {
-      "payer_id": "BCBS_001", 
-      "name": "Blue Cross Blue Shield",
+      "payer_id": "united_health_group",
+      "name": "United Health Group (High Rejection)",
       "processing_delay_ms": {
         "min": 75,
         "max": 250
       },
       "adjudication_rules": {
         "payer_percentage": 0.75,
-        "copay_fixed_amount": 30.00,
+        "copay_fixed_amount": 30,
         "deductible_percentage": 0.15
       }
     },
     {
-      "payer_id": "CIGNA_001",
-      "name": "Cigna", 
-      "processing_delay_ms": {
-        "min": 60,
-        "max": 220
-      },
-      "adjudication_rules": {
-        "payer_percentage": 0.85,
-        "copay_fixed_amount": 20.00,
-        "deductible_percentage": 0.05
-      }
-    },
-    {
-      "payer_id": "HUMANA_001",
-      "name": "Humana",
-      "processing_delay_ms": {
-        "min": 40,
-        "max": 180
-      },
-      "adjudication_rules": {
-        "payer_percentage": 0.78,
-        "copay_fixed_amount": 35.00,
-        "deductible_percentage": 0.12
-      }
-    },
-    {
-      "payer_id": "MEDICARE_001",
-      "name": "Medicare",
+      "payer_id": "medicare",
+      "name": "Medicare (Denial Demo)",
       "processing_delay_ms": {
         "min": 100,
         "max": 300
       },
       "adjudication_rules": {
-        "payer_percentage": 0.70,
-        "copay_fixed_amount": 15.00,
-        "deductible_percentage": 0.20
+        "payer_percentage": 0.7,
+        "copay_fixed_amount": 15,
+        "deductible_percentage": 0.2
       }
     }
   ],
   "ingestion": {
-    "rateLimit": 50.0
+    "rateLimit": 50
   }
 }

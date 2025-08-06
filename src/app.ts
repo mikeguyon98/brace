@@ -36,7 +36,7 @@ const DEFAULT_CONFIG: SingleProcessConfig = {
   payers: [
     {
       payer_id: 'anthem',
-      name: 'Anthem',
+      name: 'Anthem (Strict)',
       processing_delay_ms: { min: 100, max: 500 },
       adjudication_rules: {
         payer_percentage: 0.80,
@@ -46,7 +46,7 @@ const DEFAULT_CONFIG: SingleProcessConfig = {
     },
     {
       payer_id: 'united_health_group',
-      name: 'United Health Group',
+      name: 'United Health Group (High Rejection)',
       processing_delay_ms: { min: 150, max: 600 },
       adjudication_rules: {
         payer_percentage: 0.75,
@@ -56,7 +56,7 @@ const DEFAULT_CONFIG: SingleProcessConfig = {
     },
     {
       payer_id: 'medicare',
-      name: 'Medicare',
+      name: 'Medicare (Denial Demo)',
       processing_delay_ms: { min: 300, max: 1000 },
       adjudication_rules: {
         payer_percentage: 0.70,

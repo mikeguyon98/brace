@@ -3,26 +3,35 @@
   "version": "1.0.0",
   "description": "High-performance medical billing claims processing simulator",
   "scripts": {
-    "build": "pnpm run build:shared && pnpm run build:single-process",
+    "build": "pnpm run build:shared && pnpm run build:single-process && pnpm run build:api && pnpm run build:frontend",
     "build:shared": "tsc -p packages/shared/tsconfig.json",
     "build:single-process": "cd src && pnpm install && pnpm run build",
+    "build:api": "cd api && pnpm install && pnpm run build",
+    "build:frontend": "cd frontend && pnpm install && pnpm run build",
 
     "start:single-process": "./scripts/start-single-process.sh",
+    "start:api": "cd api && pnpm run dev",
+    "start:frontend": "cd frontend && pnpm run dev",
+    "start:web": "concurrently \"pnpm run start:api\" \"pnpm run start:frontend\"",
+    
     "single-process": "cd src && pnpm run dev",
     "docker:build": "docker-compose build",
     "docker:up": "docker-compose up",
     "docker:down": "docker-compose down",
     "test": "jest",
-    "lint": "eslint . --ext .ts",
+    "lint": "eslint . --ext .ts,.tsx",
     "format": "prettier --write ."
   },
   "workspaces": [
-    "packages/*"
+    "packages/*",
+    "api",
+    "frontend"
   ],
   "devDependencies": {
     "@types/node": "^20.0.0",
     "@typescript-eslint/eslint-plugin": "^6.0.0",
     "@typescript-eslint/parser": "^6.0.0",
+    "concurrently": "^8.0.0",
     "eslint": "^8.0.0",
     "jest": "^29.0.0",
     "prettier": "^3.0.0",

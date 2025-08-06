@@ -9,6 +9,20 @@ dist/
 build/
 *.tsbuildinfo
 
+# TypeScript compiled files outside of dist (should not be in source dirs)
+src/**/*.js
+src/**/*.d.ts
+src/**/*.js.map
+src/**/*.d.ts.map
+api/**/*.js
+api/**/*.d.ts
+api/**/*.js.map
+api/**/*.d.ts.map
+frontend/**/*.js
+frontend/**/*.d.ts
+frontend/**/*.js.map
+frontend/**/*.d.ts.map
+
 # Environment variables
 .env
 .env.local

@@ -1,23 +1,23 @@
 {
   "ingestion": {
-    "rateLimit": 12.0
+    "rateLimit": 12
   },
   "payers": [
     {
-      "payer_id": "AETNA_001",
+      "payer_id": "anthem",
       "name": "Aetna",
       "processing_delay_ms": {
         "min": 5000,
         "max": 30000
       },
       "adjudication_rules": {
-        "payer_percentage": 0.80,
-        "copay_fixed_amount": 25.00,
-        "deductible_percentage": 0.10
+        "payer_percentage": 0.8,
+        "copay_fixed_amount": 25,
+        "deductible_percentage": 0.1
       }
     },
     {
-      "payer_id": "BCBS_001", 
+      "payer_id": "united_health_group",
       "name": "Blue Cross Blue Shield",
       "processing_delay_ms": {
         "min": 70000,
@@ -25,47 +25,21 @@
       },
       "adjudication_rules": {
         "payer_percentage": 0.75,
-        "copay_fixed_amount": 30.00,
+        "copay_fixed_amount": 30,
         "deductible_percentage": 0.15
       }
     },
     {
-      "payer_id": "CIGNA_001",
-      "name": "Cigna", 
+      "payer_id": "medicare",
+      "name": "Cigna",
       "processing_delay_ms": {
         "min": 120000,
         "max": 150000
       },
       "adjudication_rules": {
         "payer_percentage": 0.82,
-        "copay_fixed_amount": 20.00,
+        "copay_fixed_amount": 20,
         "deductible_percentage": 0.12
-      }
-    },
-    {
-      "payer_id": "HUMANA_001",
-      "name": "Humana",
-      "processing_delay_ms": {
-        "min": 90000,
-        "max": 130000
-      },
-      "adjudication_rules": {
-        "payer_percentage": 0.78,
-        "copay_fixed_amount": 35.00,
-        "deductible_percentage": 0.18
-      }
-    },
-    {
-      "payer_id": "MEDICARE_001",
-      "name": "Medicare",
-      "processing_delay_ms": {
-        "min": 180000,
-        "max": 240000
-      },
-      "adjudication_rules": {
-        "payer_percentage": 0.70,
-        "copay_fixed_amount": 15.00,
-        "deductible_percentage": 0.20
       }
     }
   ],
@@ -74,7 +48,7 @@
       "host": "localhost",
       "port": 5434,
       "username": "postgres",
-      "password": "postgres", 
+      "password": "postgres",
       "database": "clearinghouse"
     },
     "billing": {

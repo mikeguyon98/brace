@@ -1,23 +1,23 @@
 {
   "ingestion": {
-    "rateLimit": 15.0
+    "rateLimit": 15
   },
   "payers": [
     {
-      "payer_id": "AETNA_001",
+      "payer_id": "anthem",
       "name": "Aetna - Fast Processor",
       "processing_delay_ms": {
         "min": 15000,
         "max": 45000
       },
       "adjudication_rules": {
-        "payer_percentage": 0.80,
-        "copay_fixed_amount": 25.00,
-        "deductible_percentage": 0.10
+        "payer_percentage": 0.8,
+        "copay_fixed_amount": 25,
+        "deductible_percentage": 0.1
       }
     },
     {
-      "payer_id": "BCBS_001", 
+      "payer_id": "united_health_group",
       "name": "Blue Cross - Medium Speed",
       "processing_delay_ms": {
         "min": 80000,
@@ -25,47 +25,21 @@
       },
       "adjudication_rules": {
         "payer_percentage": 0.75,
-        "copay_fixed_amount": 30.00,
+        "copay_fixed_amount": 30,
         "deductible_percentage": 0.15
       }
     },
     {
-      "payer_id": "CIGNA_001",
-      "name": "Cigna - Slow Processor", 
+      "payer_id": "medicare",
+      "name": "Cigna - Slow Processor",
       "processing_delay_ms": {
         "min": 130000,
         "max": 170000
       },
       "adjudication_rules": {
         "payer_percentage": 0.82,
-        "copay_fixed_amount": 20.00,
+        "copay_fixed_amount": 20,
         "deductible_percentage": 0.12
-      }
-    },
-    {
-      "payer_id": "HUMANA_001",
-      "name": "Humana - Variable Speed",
-      "processing_delay_ms": {
-        "min": 100000,
-        "max": 140000
-      },
-      "adjudication_rules": {
-        "payer_percentage": 0.78,
-        "copay_fixed_amount": 35.00,
-        "deductible_percentage": 0.18
-      }
-    },
-    {
-      "payer_id": "MEDICARE_001",
-      "name": "Medicare - Very Slow",
-      "processing_delay_ms": {
-        "min": 200000,
-        "max": 300000
-      },
-      "adjudication_rules": {
-        "payer_percentage": 0.70,
-        "copay_fixed_amount": 15.00,
-        "deductible_percentage": 0.20
       }
     }
   ],
@@ -74,7 +48,7 @@
       "host": "localhost",
       "port": 5434,
       "username": "postgres",
-      "password": "postgres", 
+      "password": "postgres",
       "database": "clearinghouse"
     },
     "billing": {
