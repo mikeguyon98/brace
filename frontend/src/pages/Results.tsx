@@ -200,45 +200,6 @@ export function Results() {
           </div>
         </div>
       )}
-
-      {/* Service Statistics */}
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-        <div className="card p-6">
-          <h3 className="text-md font-semibold text-gray-900 mb-3">Ingestion Service</h3>
-          <div className="space-y-2">
-            <div className="flex justify-between">
-              <span className="text-sm text-gray-600">Files Processed</span>
-              <span className="text-sm font-medium">{stats.ingestion?.filesProcessed || '0'}</span>
-            </div>
-            <div className="flex justify-between">
-              <span className="text-sm text-gray-600">Claims Processed</span>
-              <span className="text-sm font-medium">{stats.ingestion?.claimsProcessed || '0'}</span>
-            </div>
-            <div className="flex justify-between">
-              <span className="text-sm text-gray-600">Errors</span>
-              <span className="text-sm font-medium text-danger-600">{stats.ingestion?.errors || '0'}</span>
-            </div>
-          </div>
-        </div>
-
-        <div className="card p-6">
-          <h3 className="text-md font-semibold text-gray-900 mb-3">Clearinghouse Service</h3>
-          <div className="space-y-2">
-            <div className="flex justify-between">
-              <span className="text-sm text-gray-600">Claims Processed</span>
-              <span className="text-sm font-medium">{stats.clearinghouse?.claimsProcessed || '0'}</span>
-            </div>
-            <div className="flex justify-between">
-              <span className="text-sm text-gray-600">Claims Routed</span>
-              <span className="text-sm font-medium">{stats.clearinghouse?.claimsRouted || '0'}</span>
-            </div>
-            <div className="flex justify-between">
-              <span className="text-sm text-gray-600">Errors</span>
-              <span className="text-sm font-medium text-danger-600">{stats.clearinghouse?.errors || '0'}</span>
-            </div>
-          </div>
-        </div>
-      </div>
     </div>
   )
 } 
