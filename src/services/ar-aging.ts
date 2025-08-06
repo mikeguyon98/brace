@@ -387,6 +387,44 @@ export class ARAgingService {
   }
 
   /**
+   * Get current claim state statistics for live tracking
+   */
+  getClaimStateStats(): {
+    totalSubmitted: number;
+    totalCompleted: number;
+    outstanding: number;
+    byPayer: Map<string, { submitted: number; completed: number; outstanding: number }>;
+  } {
+    const totalSubmitted = this.claims.size;
+    let totalCompleted = 0;
+    const byPayer = new Map<string, { submitted: number; completed: number; outstanding: number }>();
+
+    // Count claims by payer and status
+    for (const claim of this.claims.values()) {
+      const payerName = this.getPayerName(claim.payerId);
+      const payerStats = byPayer.get(payerName) || { submitted: 0, completed: 0, outstanding: 0 };
+      
+      payerStats.submitted++;
+      
+      if (!claim.isOutstanding) {
+        payerStats.completed++;
+        totalCompleted++;
+      } else {
+        payerStats.outstanding++;
+      }
+      
+      byPayer.set(payerName, payerStats);
+    }
+
+    return {
+      totalSubmitted,
+      totalCompleted,
+      outstanding: totalSubmitted - totalCompleted,
+      byPayer
+    };
+  }
+
+  /**
    * Cleanup and persistence
    */
   stop(): void {

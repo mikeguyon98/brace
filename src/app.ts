@@ -103,6 +103,15 @@ class BillingSimulator {
   private totalClaimsToProcess = 0;
   private claimsProcessedByBilling = 0;
   private completionCheckInterval?: NodeJS.Timeout;
+  
+  // Fine-grained pipeline tracking - tracks claims CURRENTLY in each step
+  private pipelineStats = {
+    step1_being_ingested: 0,              // Claims currently being read from file
+    step2_in_clearinghouse_queue: 0,      // Claims waiting in clearinghouse queue
+    step3_with_payers: 0,                 // Claims currently being processed by payers
+    step4_remittances_in_billing_queue: 0, // Remittances waiting in billing queue
+    step5_fully_complete: 0               // Claims fully processed through billing
+  };
 
   constructor(config: SingleProcessConfig = DEFAULT_CONFIG) {
     this.config = config;
@@ -140,8 +149,13 @@ class BillingSimulator {
       payerConfigs.set(payerConfig.payer_id, payerConfig);
     }
 
-    // Initialize services
-    this.ingestionService = new IngestionService(claimsQueue, this.config.ingestion);
+    // Initialize services with pipeline tracking callbacks
+    this.ingestionService = new IngestionService(
+      claimsQueue, 
+      this.config.ingestion,
+      () => this.claimStartsIngestion(),
+      () => this.claimFinishesIngestion()
+    );
 
     // Initialize AR Aging service first
     this.arAgingService = new ARAgingService(5);
@@ -151,13 +165,19 @@ class BillingSimulator {
       remittanceQueue,
       payerQueues,
       payerConfigs,
-      this.arAgingService
+      this.arAgingService,
+      () => this.claimForwardedToPayer()
     );
 
     // Initialize payer services
     for (const payerConfig of this.config.payers) {
       const payerQueue = payerQueues.get(payerConfig.payer_id);
-      const payerService = new PayerService(payerConfig, payerQueue, remittanceQueue);
+      const payerService = new PayerService(
+        payerConfig, 
+        payerQueue, 
+        remittanceQueue,
+        () => this.claimAdjudicatedByPayer()
+      );
       this.payerServices.set(payerConfig.payer_id, payerService);
     }
 
@@ -224,7 +244,34 @@ class BillingSimulator {
    */
   incrementProcessedClaims(): void {
     this.claimsProcessedByBilling++;
+    // Move from billing queue to fully complete
+    this.pipelineStats.step4_remittances_in_billing_queue--;
+    this.pipelineStats.step5_fully_complete++;
     logger.info(`✅ Claim processed by billing: ${this.claimsProcessedByBilling}/${this.totalClaimsToProcess}`);
+  }
+
+  // Pipeline step tracking methods - claims enter and leave each step
+  claimStartsIngestion(): void {
+    this.pipelineStats.step1_being_ingested++;
+  }
+
+  claimFinishesIngestion(): void {
+    this.pipelineStats.step1_being_ingested--;
+    this.pipelineStats.step2_in_clearinghouse_queue++;
+  }
+
+  claimForwardedToPayer(): void {
+    this.pipelineStats.step2_in_clearinghouse_queue--;
+    this.pipelineStats.step3_with_payers++;
+  }
+
+  claimAdjudicatedByPayer(): void {
+    this.pipelineStats.step3_with_payers--;
+    this.pipelineStats.step4_remittances_in_billing_queue++;
+  }
+
+  getPipelineStats() {
+    return { ...this.pipelineStats };
   }
 
   /**
@@ -235,7 +282,7 @@ class BillingSimulator {
   }
 
   /**
-   * Wait for all claims to be processed, checking every 5 seconds
+   * Wait for all claims to be processed with live claim state tracking
    */
   async waitForAllClaimsToComplete(): Promise<void> {
     if (this.totalClaimsToProcess === 0) {
@@ -244,21 +291,60 @@ class BillingSimulator {
     }
 
     logger.info(`⏳ Waiting for all ${this.totalClaimsToProcess} claims to be processed...`);
-    logger.info('📈 AR Aging reports will show real-time progress every 5 seconds');
+    logger.info('📊 Live claim state tracking every 5 seconds');
 
     return new Promise((resolve) => {
       this.completionCheckInterval = setInterval(() => {
-        const progress = (this.claimsProcessedByBilling / this.totalClaimsToProcess * 100).toFixed(1);
+        this.printClaimStateTracking();
         
         if (this.areAllClaimsProcessed()) {
           logger.info(`🎉 ALL CLAIMS COMPLETED! Processed ${this.claimsProcessedByBilling}/${this.totalClaimsToProcess} claims (100%)`);
           clearInterval(this.completionCheckInterval!);
           resolve();
-        } else {
-          logger.info(`🔄 Processing progress: ${this.claimsProcessedByBilling}/${this.totalClaimsToProcess} claims (${progress}%)`);
         }
       }, 5000); // Check every 5 seconds
     });
+  }
+
+  /**
+   * Print detailed pipeline tracking and AR aging report
+   */
+  private printClaimStateTracking(): void {
+    const claimStats = this.arAgingService.getClaimStateStats();
+    const billingStats = this.billingService.getStats();
+    const queueStats = queueManager.getOverallStats();
+    const pipelineStats = this.getPipelineStats();
+    
+    const progress = (this.claimsProcessedByBilling / this.totalClaimsToProcess * 100).toFixed(1);
+    
+    console.log('\n' + '═'.repeat(120));
+    console.log(`🏥 HEALTHCARE BILLING PIPELINE TRACKING - ${new Date().toLocaleTimeString()}`);
+    console.log('═'.repeat(120));
+    
+    // Overall progress
+    console.log(`🎯 OVERALL PROGRESS: ${this.claimsProcessedByBilling}/${this.totalClaimsToProcess} completed (${progress}%)`);
+    console.log(`💰 FINANCIAL: $${billingStats.totalBilledAmount.toLocaleString('en-US', { minimumFractionDigits: 2 })} billed | $${billingStats.totalPaidAmount.toLocaleString('en-US', { minimumFractionDigits: 2 })} paid | ${((billingStats.totalPaidAmount / Math.max(billingStats.totalBilledAmount, 1)) * 100).toFixed(1)}% rate`);
+    
+    console.log('\n📋 DETAILED PIPELINE STATUS:');
+    console.log('─'.repeat(120));
+    console.log('| Step | Description                                    | Count | Status |');
+    console.log('─'.repeat(120));
+    console.log(`| 1️⃣   | Claims Being Ingested from File               | ${String(pipelineStats.step1_being_ingested).padStart(5)} | ${pipelineStats.step1_being_ingested === 0 ? '✅ Complete' : '🔄 Processing'} |`);
+    console.log(`| 2️⃣   | Claims in Clearinghouse Queue                 | ${String(pipelineStats.step2_in_clearinghouse_queue).padStart(5)} | ${pipelineStats.step2_in_clearinghouse_queue === 0 ? '✅ Complete' : '🔄 Processing'} |`);
+    console.log(`| 3️⃣   | Claims with Payers (Being Adjudicated)        | ${String(pipelineStats.step3_with_payers).padStart(5)} | ${pipelineStats.step3_with_payers === 0 ? '✅ Complete' : '🔄 Processing'} |`);
+    console.log(`| 4️⃣   | Remittances in Billing Queue                  | ${String(pipelineStats.step4_remittances_in_billing_queue).padStart(5)} | ${pipelineStats.step4_remittances_in_billing_queue === 0 ? '✅ Complete' : '🔄 Processing'} |`);
+    console.log(`| 5️⃣   | Claims Fully Complete                          | ${String(pipelineStats.step5_fully_complete).padStart(5)} | ${pipelineStats.step5_fully_complete === this.totalClaimsToProcess ? '✅ All Done' : '🔄 In Progress'} |`);
+    console.log('─'.repeat(120));
+    
+    console.log(`\n⚡ QUEUE STATUS: ${queueStats.totalPending} pending | ${queueStats.totalProcessing} processing | Outstanding: ${claimStats.outstanding}`);
+    
+    // Show AR Aging Report
+    console.log('\n' + '─'.repeat(120));
+    this.arAgingService.printFormattedReport();
+    
+    console.log('─'.repeat(120));
+    console.log(`📈 Next update in 5 seconds...`);
+    console.log('═'.repeat(120) + '\n');
   }
 
   async ingestFile(filePath: string): Promise<void> {
@@ -275,7 +361,7 @@ class BillingSimulator {
     await this.ingestionService.ingestFile(filePath);
     logger.info('File ingestion completed');
 
-    // Wait for ALL claims to be processed
+    // Wait for ALL claims to be processed with live state tracking
     await this.waitForAllClaimsToComplete();
     logger.info('🎉 All claims have been fully processed!');
     

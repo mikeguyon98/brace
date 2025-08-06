@@ -123,7 +123,8 @@ export class PayerService {
   constructor(
     config: PayerConfig,
     payerQueue: InMemoryQueue<ClaimMessage>,
-    remittanceQueue: InMemoryQueue<RemittanceMessage>
+    remittanceQueue: InMemoryQueue<RemittanceMessage>,
+    private onStep4Complete?: () => void
   ) {
     this.config = config;
     this.adjudicator = new PayerAdjudicator(config);
@@ -164,6 +165,11 @@ export class PayerService {
       };
 
       await this.remittanceQueue.add(remittanceMessage);
+
+      // Track Step 4: Claims Adjudicated by Payers (Remittances Created)
+      if (this.onStep4Complete) {
+        this.onStep4Complete();
+      }
 
       this.claimsProcessed++;
       const processingTime = Date.now() - startTime;

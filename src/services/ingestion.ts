@@ -13,7 +13,12 @@ export class IngestionService {
   private isRunning = false;
   private claimsIngested = 0;
 
-  constructor(claimsQueue: InMemoryQueue<ClaimMessage>, config: IngestionConfig = {}) {
+  constructor(
+    claimsQueue: InMemoryQueue<ClaimMessage>, 
+    config: IngestionConfig = {},
+    private onStep1Complete?: () => void,
+    private onStep2Complete?: () => void
+  ) {
     this.claimsQueue = claimsQueue;
     this.config = {
       rateLimit: config.rateLimit || 1,
@@ -52,9 +57,19 @@ export class IngestionService {
         }
 
         try {
+          // Track when claim starts ingestion
+          if (this.onStep1Complete) {
+            this.onStep1Complete();
+          }
+          
           const claim = JSON.parse(lines[i]) as PayerClaim;
           await this.ingestClaim(claim);
           this.claimsIngested++;
+          
+          // Track when claim finishes ingestion and moves to clearinghouse
+          if (this.onStep2Complete) {
+            this.onStep2Complete();
+          }
 
           if (this.claimsIngested % 100 === 0) {
             const elapsed = (Date.now() - startTime) / 1000;

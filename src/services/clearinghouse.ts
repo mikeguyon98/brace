@@ -26,7 +26,8 @@ export class ClearinghouseService {
     remittanceQueue: InMemoryQueue<RemittanceMessage>,
     payerQueues: Map<string, InMemoryQueue<ClaimMessage>>,
     payerConfigs: Map<string, any>,
-    arAgingService?: ARAgingService
+    arAgingService?: ARAgingService,
+    private onStep3Complete?: () => void
   ) {
     this.claimsQueue = claimsQueue;
     this.remittanceQueue = remittanceQueue;
@@ -84,6 +85,11 @@ export class ClearinghouseService {
       }
 
       await payerQueue.add(claimMessage);
+
+      // Track Step 3: Claims Forwarded to Payers
+      if (this.onStep3Complete) {
+        this.onStep3Complete();
+      }
 
       // Record claim submission for AR Aging
       if (this.arAgingService) {
