@@ -5,6 +5,7 @@ import {
   type RemittanceMessage,
   type PayerConfig,
   createServiceLogger,
+  MetricsCollector,
   QUEUE_NAMES,
   QUEUE_CONFIGS,
 } from '@billing-simulator/shared';
@@ -26,6 +27,7 @@ export class PayerService {
   private config: PayerServiceConfig;
   private redis: Redis;
   private adjudicator: PayerAdjudicator;
+  private metrics: MetricsCollector;
   
   // Queues
   private payerQueue: Queue<ClaimMessage>;
@@ -82,6 +84,9 @@ export class PayerService {
     );
 
     this.setupWorkerEventHandlers();
+    
+    // Initialize metrics collector
+    this.metrics = new MetricsCollector(this.redis);
     
     logger.info(`Payer service initialized for ${config.payerConfig.name} (${config.payerId})`);
   }
@@ -149,6 +154,9 @@ export class PayerService {
       const processingTime = Date.now() - startTime;
       this.claimsProcessed++;
       this.totalProcessingTime += processingTime;
+      
+      // Track persistent metrics
+      await this.metrics.incrementClaimsProcessed(this.config.payerId);
 
       logger.debug(`Completed claim ${claimMessage.claim.claim_id} in ${processingTime}ms`);
 
@@ -160,6 +168,9 @@ export class PayerService {
     } catch (error) {
       this.errors++;
       const processingTime = Date.now() - startTime;
+      
+      // Track persistent error metrics
+      await this.metrics.incrementErrors(`payer-${this.config.payerId.toLowerCase()}`);
       
       logger.error(`Failed to process claim ${claimMessage.claim.claim_id} for payer ${this.config.payerId}: ${error instanceof Error ? error.message : error}`);
       

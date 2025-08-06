@@ -1,0 +1,118 @@
+import { ClaimMessage, RemittanceMessage } from '../shared/types';
+import { logger } from '../shared/logger';
+import { InMemoryQueue } from '../queue/in-memory-queue';
+
+interface StoredClaim {
+  correlation_id: string;
+  claim_id: string;
+  payer_id: string;
+  ingested_at: string;
+  submitted_at: string;
+  claim_data: any;
+}
+
+export class ClearinghouseService {
+  private claimsQueue: InMemoryQueue<ClaimMessage>;
+  private remittanceQueue: InMemoryQueue<RemittanceMessage>;
+  private payerQueues: Map<string, InMemoryQueue<ClaimMessage>>;
+  private payerConfigs: Map<string, any>;
+  private storedClaims: Map<string, StoredClaim> = new Map(); // In-memory storage instead of DB
+  private claimsProcessed = 0;
+
+  constructor(
+    claimsQueue: InMemoryQueue<ClaimMessage>,
+    remittanceQueue: InMemoryQueue<RemittanceMessage>,
+    payerQueues: Map<string, InMemoryQueue<ClaimMessage>>,
+    payerConfigs: Map<string, any>
+  ) {
+    this.claimsQueue = claimsQueue;
+    this.remittanceQueue = remittanceQueue;
+    this.payerQueues = payerQueues;
+    this.payerConfigs = payerConfigs;
+
+    this.setupProcessors();
+  }
+
+  private setupProcessors(): void {
+    // Process incoming claims
+    this.claimsQueue.process(async (job) => {
+      await this.processClaim(job.data);
+    });
+
+    // Note: Remittances are processed by the billing service, not here
+    // The clearinghouse just handles correlation tracking
+
+    logger.info('Clearinghouse service processors initialized');
+  }
+
+  private async processClaim(claimMessage: ClaimMessage): Promise<void> {
+    try {
+      logger.debug(`Processing claim ${claimMessage.claim.claim_id} from correlation ${claimMessage.correlation_id}`);
+
+      // Find the appropriate payer or use fallback
+      const payerId = claimMessage.claim.payer_id;
+      let targetPayerId = payerId;
+      
+      if (!this.payerConfigs.has(payerId)) {
+        // Use first available payer as fallback
+        const fallbackPayer = this.payerConfigs.keys().next().value;
+        if (!fallbackPayer) {
+          throw new Error(`No payer configuration found for ${payerId} and no fallback available`);
+        }
+        targetPayerId = fallbackPayer;
+        logger.warn(`Using fallback payer ${targetPayerId} for unknown payer ${payerId}`);
+      }
+
+      // Store claim for correlation tracking (in-memory)
+      this.storedClaims.set(claimMessage.correlation_id, {
+        correlation_id: claimMessage.correlation_id,
+        claim_id: claimMessage.claim.claim_id,
+        payer_id: targetPayerId,
+        ingested_at: claimMessage.ingested_at,
+        submitted_at: new Date().toISOString(),
+        claim_data: claimMessage.claim,
+      });
+
+      // Forward to appropriate payer queue
+      const payerQueue = this.payerQueues.get(targetPayerId);
+      if (!payerQueue) {
+        throw new Error(`Payer queue not found for ${targetPayerId}`);
+      }
+
+      await payerQueue.add(claimMessage);
+
+      this.claimsProcessed++;
+      
+      if (this.claimsProcessed % 100 === 0) {
+        logger.info(`Clearinghouse processed ${this.claimsProcessed} claims`);
+      }
+
+    } catch (error) {
+      logger.error(`Error processing claim ${claimMessage.claim.claim_id}:`, error);
+      throw error;
+    }
+  }
+
+  // Remittance processing is now handled by the billing service
+  // This method is no longer needed since clearinghouse only does correlation tracking
+
+  private calculatePriority(claim: any): number {
+    // Simple priority calculation based on claim amount
+    const totalAmount = claim.service_lines.reduce((sum: number, line: any) => sum + line.billed_amount, 0);
+    
+    if (totalAmount > 10000) return 1; // High priority
+    if (totalAmount > 1000) return 2;  // Medium priority
+    return 3; // Low priority
+  }
+
+  getStats() {
+    return {
+      claimsProcessed: this.claimsProcessed,
+      storedClaimsCount: this.storedClaims.size,
+    };
+  }
+
+  getStoredClaim(correlationId: string): StoredClaim | undefined {
+    return this.storedClaims.get(correlationId);
+  }
+}

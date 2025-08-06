@@ -9,6 +9,7 @@ A high-performance, microservice-based medical billing claims processing simulat
 - **Clearinghouse Service**: Central claim routing and correlation tracking
 - **Payer Services**: Multiple simulated insurance payers with different adjudication rules
 - **Billing Service**: Statistics computation and A/R aging reports
+- **Monitor Service** *(optional)*: Real-time web dashboard for queue monitoring and process control
 
 ### Infrastructure
 - **Redis + BullMQ**: High-performance message queuing
@@ -22,12 +23,28 @@ A high-performance, microservice-based medical billing claims processing simulat
 - Node.js 20+ (for local development)
 
 ### 1. Start the Simulator
-```bash
-# Clone and navigate to the project
-cd brace
 
-# Start all services
-./scripts/start-simulator.sh
+Choose one of these options:
+
+**With Monitoring Dashboard (Recommended):**
+```bash
+# Start all services with the monitoring dashboard
+./scripts/start-with-monitoring.sh
+```
+
+**Without Monitoring (Lightweight):**
+```bash
+# Start core services only (better performance)
+./scripts/start-without-monitoring.sh
+```
+
+**Manual start:**
+```bash
+# Start core services
+docker-compose up -d
+
+# Or start with monitoring
+docker-compose --profile monitoring up -d
 ```
 
 ### 2. Generate Sample Data
@@ -43,6 +60,13 @@ docker-compose run --rm -v $(pwd):/data ingestion /data/claims.jsonl --rate=2.0
 ```
 
 ### 4. Monitor the System
+
+**Monitoring Dashboard (if enabled):**
+- Open http://localhost:3001 in your browser
+- View real-time queue metrics and processing rates  
+- Start/stop claims processing directly from the UI
+
+**Command Line Monitoring:**
 ```bash
 # Watch billing statistics (printed every 5 seconds)
 docker-compose logs -f billing
@@ -55,6 +79,13 @@ docker-compose logs -f payer-aetna
 ```
 
 ## 📊 Features
+
+### Monitoring Dashboard
+- **Real-time Queue Metrics**: Monitor queue depths, processing rates, and system health
+- **Web-based Interface**: Modern React dashboard accessible at http://localhost:3001
+- **Process Control**: Start and configure claims ingestion directly from the UI
+- **Optional & Lightweight**: Use Docker profiles to enable/disable monitoring
+- **Live Updates**: Auto-refreshing metrics every 2 seconds
 
 ### Performance Optimizations
 - **Token bucket rate limiting** for precise ingestion control

@@ -201,6 +201,34 @@ services:
         condition: service_healthy
     restart: unless-stopped
 
+  # Monitor service (optional)
+  monitor:
+    build:
+      context: .
+      dockerfile: services/monitor/Dockerfile
+    environment:
+      - NODE_ENV=production
+      - SERVICE_NAME=monitor
+      - REDIS_HOST=redis
+      - REDIS_PORT=6379
+      - PORT=3001
+    ports:
+      - "3001:3001"
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      - .:/app/workspace
+    depends_on:
+      redis:
+        condition: service_healthy
+    restart: unless-stopped
+    profiles:
+      - monitoring
+    healthcheck:
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:3001/api/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
   # Ingestion service (run separately with CLI)
   # This service is typically run manually with the claims file
   # Example: docker-compose run --rm ingestion /data/claims.jsonl --rate=2.0

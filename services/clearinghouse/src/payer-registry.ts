@@ -23,7 +23,7 @@ export class PayerRegistry {
       {
         payer_id: 'AETNA_001',
         name: 'Aetna Health Insurance',
-        processing_delay_ms: { min: 1000, max: 5000 },
+        processing_delay_ms: { min: 100, max: 500 },
         adjudication_rules: {
           payer_percentage: 0.8,
           copay_fixed_amount: 25,
@@ -33,7 +33,7 @@ export class PayerRegistry {
       {
         payer_id: 'BCBS_001',
         name: 'Blue Cross Blue Shield',
-        processing_delay_ms: { min: 2000, max: 8000 },
+        processing_delay_ms: { min: 200, max: 800 },
         adjudication_rules: {
           payer_percentage: 0.75,
           copay_fixed_amount: 30,
@@ -43,7 +43,7 @@ export class PayerRegistry {
       {
         payer_id: 'CIGNA_001',
         name: 'Cigna Healthcare',
-        processing_delay_ms: { min: 1500, max: 6000 },
+        processing_delay_ms: { min: 150, max: 600 },
         adjudication_rules: {
           payer_percentage: 0.85,
           copay_fixed_amount: 20,
@@ -53,7 +53,7 @@ export class PayerRegistry {
       {
         payer_id: 'HUMANA_001',
         name: 'Humana Inc.',
-        processing_delay_ms: { min: 3000, max: 10000 },
+        processing_delay_ms: { min: 300, max: 1000 },
         adjudication_rules: {
           payer_percentage: 0.7,
           copay_fixed_amount: 35,
@@ -63,7 +63,7 @@ export class PayerRegistry {
       {
         payer_id: 'MEDICARE_001',
         name: 'Medicare',
-        processing_delay_ms: { min: 5000, max: 15000 },
+        processing_delay_ms: { min: 500, max: 1500 },
         adjudication_rules: {
           payer_percentage: 0.8,
           copay_fixed_amount: 0, // Medicare often has no copay

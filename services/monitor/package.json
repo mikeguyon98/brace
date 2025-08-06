@@ -1,0 +1,25 @@
+{
+  "name": "@billing-simulator/monitor",
+  "version": "1.0.0",
+  "description": "Lightweight monitoring dashboard for claims processing",
+  "main": "dist/index.js",
+  "scripts": {
+    "build": "tsc && npm run build:frontend",
+    "build:frontend": "cd frontend && npm install && npm run build",
+    "dev": "tsx watch src/index.ts",
+    "dev:frontend": "cd frontend && npm run dev",
+    "start": "node dist/index.js"
+  },
+  "dependencies": {
+    "@billing-simulator/shared": "workspace:*",
+    "fastify": "^4.0.0",
+    "@fastify/static": "^6.0.0",
+    "ioredis": "^5.0.0",
+    "bullmq": "^5.0.0"
+  },
+  "devDependencies": {
+    "@types/node": "^20.0.0",
+    "tsx": "^4.0.0",
+    "typescript": "^5.0.0"
+  }
+}

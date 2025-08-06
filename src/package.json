@@ -1,0 +1,35 @@
+{
+  "name": "billing-simulator-single-process",
+  "version": "2.0.0",
+  "description": "Single-process medical billing claims processing simulator",
+  "main": "dist/app.js",
+  "bin": {
+    "billing-simulator": "dist/app.js"
+  },
+  "scripts": {
+    "build": "tsc",
+    "start": "node dist/app.js start",
+    "dev": "tsx app.ts start",
+    "ingest": "tsx app.ts ingest",
+    "test": "jest",
+    "lint": "eslint . --ext .ts",
+    "format": "prettier --write ."
+  },
+  "dependencies": {
+    "commander": "^11.0.0",
+    "pg": "^8.0.0",
+    "winston": "^3.0.0",
+    "zod": "^3.0.0"
+  },
+  "devDependencies": {
+    "@types/node": "^20.0.0",
+    "@types/pg": "^8.0.0",
+    "typescript": "^5.0.0",
+    "tsx": "^4.0.0",
+    "eslint": "^8.0.0",
+    "@typescript-eslint/eslint-plugin": "^6.0.0",
+    "@typescript-eslint/parser": "^6.0.0",
+    "prettier": "^3.0.0",
+    "jest": "^29.0.0"
+  }
+}

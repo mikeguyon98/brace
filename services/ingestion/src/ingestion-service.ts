@@ -5,6 +5,7 @@ import {
   type ClaimMessage,
   generateCorrelationId,
   createServiceLogger,
+  MetricsCollector,
   QUEUE_NAMES,
   QUEUE_CONFIGS,
 } from '@billing-simulator/shared';
@@ -29,6 +30,7 @@ export class IngestionService {
   private claimsQueue: Queue<ClaimMessage>;
   private rateLimiter: ReturnType<typeof createRateLimiter>;
   private fileReader: ClaimsFileReader;
+  private metrics: MetricsCollector;
   private isRunning = false;
   private claimsIngested = 0;
   private startTime = 0;
@@ -62,6 +64,9 @@ export class IngestionService {
       onError: this.handleError.bind(this),
       onComplete: this.handleComplete.bind(this),
     });
+
+    // Initialize metrics collector
+    this.metrics = new MetricsCollector(this.redis);
 
     logger.info(`Ingestion service initialized for file: ${config.filePath} at rate: ${config.rate} claims/sec`);
   }
@@ -130,6 +135,9 @@ export class IngestionService {
       });
 
       this.claimsIngested++;
+      
+      // Track metrics
+      await this.metrics.incrementClaimsIngested();
 
       if (this.claimsIngested % 100 === 0) {
         const elapsed = (Date.now() - this.startTime) / 1000;

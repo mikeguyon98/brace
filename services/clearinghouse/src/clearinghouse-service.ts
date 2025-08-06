@@ -4,6 +4,7 @@ import {
   type ClaimMessage,
   type RemittanceMessage,
   createServiceLogger,
+  MetricsCollector,
   QUEUE_NAMES,
   QUEUE_CONFIGS,
 } from '@billing-simulator/shared';
@@ -27,6 +28,7 @@ export class ClearinghouseService {
   private redis: Redis;
   private database: ClearinghouseDatabase;
   private payerRegistry: PayerRegistry;
+  private metrics: MetricsCollector;
   
   // Queues
   private claimsQueue: Queue<ClaimMessage>;
@@ -96,6 +98,9 @@ export class ClearinghouseService {
     );
 
     this.setupWorkerEventHandlers();
+    
+    // Initialize metrics collector
+    this.metrics = new MetricsCollector(this.redis);
   }
 
   async start(): Promise<void> {
@@ -224,6 +229,9 @@ export class ClearinghouseService {
       logger.info(`Remittance processed for claim ${inFlightClaim.claim_id}, correlation ${remittanceMessage.correlation_id}`);
 
       this.remittancesProcessed++;
+      
+      // Track persistent metrics
+      await this.metrics.incrementRemittancesGenerated();
 
     } catch (error) {
       this.errors++;
